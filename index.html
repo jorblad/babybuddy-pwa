@@ -335,7 +335,7 @@
 
     const wet = document.getElementById('diaper-wet').checked;
     const solid = document.getElementById('diaper-solid').checked;
-    const color = document.getElementById('diaper-color').value || null;
+    const color = document.getElementById('diaper-color').value || "";
     const notes = document.getElementById('diaper-notes').value.trim();
 
     if (!wet && !solid) {
