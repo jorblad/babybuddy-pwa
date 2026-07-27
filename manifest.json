@@ -7,8 +7,13 @@
   "theme_color": "#2563eb",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/cdubz/babybuddy/master/babybuddy/static/babybuddy/logo/logo-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
       "type": "image/png"
     }
   ]
