@@ -96,8 +96,12 @@
       </div>
       <input type="text" id="diaper-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
       <div>
-        <label class="block text-xs font-semibold text-gray-500 mb-1">Tags (comma-separated)</label>
-        <input type="text" id="diaper-tags" placeholder="e.g. rash, night-time" class="w-full p-2 border rounded text-sm border-gray-200" autocomplete="off">
+        <div class="flex justify-between items-center mb-1">
+          <label class="block text-xs font-semibold text-gray-500">Tags</label>
+          <button type="button" onclick="fetchTags()" class="text-xs text-blue-500 hover:text-blue-700">🔄 Refresh</button>
+        </div>
+        <div id="diaper-tag-pills" class="flex flex-wrap gap-1 mb-1"></div>
+        <input type="text" id="diaper-tags" placeholder="Type to add custom tag" class="w-full p-2 border rounded text-sm border-gray-200" autocomplete="off">
         <div id="diaper-tag-suggestions" class="hidden mt-1 bg-white border rounded text-xs max-h-24 overflow-y-auto shadow-sm"></div>
       </div>
       <div>
@@ -294,24 +298,92 @@
     }
   }
 
-  // --- Tag Autocomplete ---
+  // --- Tag System ---
   let cachedTags = [];
+  let selectedTags = [];
 
   async function fetchTags() {
     const serverObj = await db.config.get('server');
     const tokenObj = await db.config.get('token');
-    if (!serverObj || !tokenObj) return;
+    if (!serverObj || !tokenObj) {
+      const cached = await db.config.get('cached_tags');
+      if (cached) cachedTags = cached.value;
+      renderTagPills();
+      return;
+    }
 
     try {
       const res = await fetch(`${serverObj.value}/api/tags/`, {
         headers: { 'Authorization': `Token ${tokenObj.value}` }
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       cachedTags = (data.results || data).map(t => t.name);
+      await db.config.put({ key: 'cached_tags', value: cachedTags });
     } catch (err) {
       console.warn('Failed to fetch tags:', err);
+      const cached = await db.config.get('cached_tags');
+      if (cached) cachedTags = cached.value;
     }
+    renderTagPills();
+  }
+
+  function renderTagPills() {
+    const container = document.getElementById('diaper-tag-pills');
+    if (!container) return;
+    if (cachedTags.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = cachedTags.map(t => {
+      const isSelected = selectedTags.some(s => s.toLowerCase() === t.toLowerCase());
+      const cls = isSelected
+        ? 'bg-blue-100 text-blue-800 border-blue-300'
+        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-blue-50 hover:text-blue-600';
+      return `<button type="button" data-tag="${escapeHtml(t)}" class="tag-pill px-2 py-0.5 text-xs rounded-full border font-medium ${cls}">${escapeHtml(t)}</button>`;
+    }).join('');
+
+    container.querySelectorAll('.tag-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleTag(btn.dataset.tag);
+      });
+    });
+  }
+
+  function toggleTag(tag) {
+    const idx = selectedTags.findIndex(t => t.toLowerCase() === tag.toLowerCase());
+    if (idx >= 0) {
+      selectedTags.splice(idx, 1);
+    } else {
+      selectedTags.push(tag);
+    }
+    updateTagsInput();
+    renderTagPills();
+  }
+
+  function updateTagsInput() {
+    const input = document.getElementById('diaper-tags');
+    if (input) input.value = selectedTags.join(', ');
+  }
+
+  function getSelectedTags() {
+    const input = document.getElementById('diaper-tags');
+    const raw = input ? input.value.trim() : '';
+    const all = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const merged = [...selectedTags];
+    all.forEach(t => {
+      if (!merged.some(m => m.toLowerCase() === t.toLowerCase())) {
+        merged.push(t);
+      }
+    });
+    return [...new Set(merged)];
+  }
+
+  function clearTags() {
+    selectedTags = [];
+    const input = document.getElementById('diaper-tags');
+    if (input) input.value = '';
+    renderTagPills();
   }
 
   function setupTagAutocomplete(inputId, suggestionsId) {
@@ -323,6 +395,8 @@
       const val = input.value.trim();
       if (!val) {
         suggestionsEl.classList.add('hidden');
+        selectedTags = [];
+        renderTagPills();
         return;
       }
 
@@ -333,7 +407,10 @@
         return;
       }
 
-      const used = new Set(parts.slice(0, -1).map(s => s.toLowerCase()));
+      selectedTags = parts.slice(0, -1).filter(Boolean);
+      renderTagPills();
+
+      const used = new Set(selectedTags.map(s => s.toLowerCase()));
       const matches = cachedTags.filter(t =>
         t.toLowerCase().includes(current) && !used.has(t.toLowerCase())
       );
@@ -351,8 +428,10 @@
       suggestionsEl.querySelectorAll('[data-tag]').forEach(el => {
         el.addEventListener('click', () => {
           parts[parts.length - 1] = el.dataset.tag;
-          input.value = parts.join(', ') + ', ';
+          selectedTags = parts.filter(Boolean);
+          input.value = selectedTags.join(', ') + ', ';
           suggestionsEl.classList.add('hidden');
+          renderTagPills();
           input.focus();
         });
       });
@@ -388,8 +467,7 @@
     const color = document.getElementById('diaper-color').value || "";
     const notes = document.getElementById('diaper-notes').value.trim();
     const time = getTimeValue('diaper-time');
-    const tagsRaw = document.getElementById('diaper-tags').value.trim();
-    const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const tags = getSelectedTags();
 
     if (!wet && !solid) {
       return showToast('Select Wet, Solid, or both.');
@@ -419,7 +497,7 @@
       document.getElementById('diaper-solid').checked = false;
       document.getElementById('diaper-color').value = '';
       document.getElementById('diaper-notes').value = '';
-      document.getElementById('diaper-tags').value = '';
+      clearTags();
       resetTimeInput('diaper-time');
 
       showToast('Diaper entry queued locally!');
