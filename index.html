@@ -73,7 +73,7 @@
             <option value="">Fetch children first...</option>
         </select>
         </div>
-      <button onclick="saveSettings()" class="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm">Save Configuration</button>
+      <button onclick="saveConfig()" class="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm">Save Configuration</button>
     </div>
 
     <!-- Diaper Change Form -->
@@ -199,8 +199,8 @@
     const token = await db.config.get('token');
     const child = await db.config.get('child');
 
-    if (server) document.getElementById('server-url').value = server.value;
-    if (token) document.getElementById('api-token').value = token.value;
+    if (server) document.getElementById('cfg-server').value = server.value;
+    if (token) document.getElementById('cfg-token').value = token.value;
 
     if (server && token) {
       await fetchChildren(server.value, token.value, child ? child.value : null);
@@ -208,9 +208,9 @@
   }
 
   async function saveConfig() {
-    const serverUrl = document.getElementById('server-url').value.replace(/\/+$/, '');
-    const apiToken = document.getElementById('api-token').value.trim();
-    const childSelect = document.getElementById('child-select');
+    const serverUrl = document.getElementById('cfg-server').value.replace(/\/+$/, '');
+    const apiToken = document.getElementById('cfg-token').value.trim();
+    const childSelect = document.getElementById('cfg-child');
     const selectedChild = childSelect ? childSelect.value : null;
 
     if (!serverUrl || !apiToken) {
@@ -229,6 +229,16 @@
   }
 
   async function fetchChildren(serverUrl, apiToken, selectedChildId = null) {
+    if (!serverUrl || !apiToken) {
+      const server = await db.config.get('server');
+      const token = await db.config.get('token');
+      const child = await db.config.get('child');
+      serverUrl = server ? server.value : null;
+      apiToken = token ? token.value : null;
+      if (selectedChildId === null) selectedChildId = child ? child.value : null;
+    }
+    if (!serverUrl || !apiToken) return showToast('Configure Server URL and API Token first');
+
     try {
       const res = await fetch(`${serverUrl}/api/children/`, {
         headers: { 'Authorization': `Token ${apiToken}` }
@@ -237,9 +247,9 @@
       const data = await res.json();
       const children = data.results || data;
 
-      const select = document.getElementById('child-select');
+      const select = document.getElementById('cfg-child');
       if (select) {
-        select.innerHTML = children.map(c => 
+        select.innerHTML = children.map(c =>
           `<option value="${c.id}" ${c.id == selectedChildId ? 'selected' : ''}>${c.first_name} ${c.last_name}</option>`
         ).join('');
 
@@ -350,12 +360,12 @@
 
   async function updateOutboxUI() {
     const countEl = document.getElementById('outbox-count');
-    const listEl = document.getElementById('outbox-list');
+    const listEl = document.getElementById('queue-list');
     const pending = await db.outbox.where('status').equals('pending').toArray();
 
     if (countEl) countEl.innerText = pending.length;
     if (listEl) {
-      listEl.innerHTML = pending.length === 0 
+      listEl.innerHTML = pending.length === 0
         ? '<div class="text-xs text-gray-400 py-1">No pending items in queue.</div>'
         : pending.map(i => `
           <div class="text-xs bg-amber-50 border border-amber-200 p-2 rounded flex justify-between items-center">
@@ -508,7 +518,7 @@
   }
 
   function updateNetworkStatus() {
-    const statusEl = document.getElementById('online-status');
+    const statusEl = document.getElementById('net-badge');
     if (statusEl) {
       if (navigator.onLine) {
         statusEl.innerText = 'Online';
