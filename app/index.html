@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BabyBuddy Offline Quick-Log</title>
+  <!-- Inline PWA Manifest -->
+  <link rel="manifest" href='data:application/manifest+json,{"name":"BabyBuddy Offline","short_name":"BabyBuddy","start_url":".","display":"standalone","background_color":"#f3f4f6","theme_color":"#2563eb"}'>
+  <!-- Tailwind CSS & Dexie.js via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800 pb-12">
+
+  <!-- Header -->
+  <header class="bg-blue-600 text-white p-4 shadow-md sticky top-0 z-10">
+    <div class="max-w-md mx-auto flex justify-between items-center">
+      <h1 class="text-xl font-bold flex items-center gap-2">
+        <span>👶</span> BabyBuddy
+      </h1>
+      <div class="flex items-center gap-2">
+        <span id="net-badge" class="text-xs px-2 py-1 rounded font-semibold bg-gray-200 text-gray-800">Checking...</span>
+        <button onclick="toggleSettings()" class="text-sm bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded border border-blue-500">⚙️ Config</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto p-4 space-y-6">
+
+    <!-- Outbox Status Banner -->
+    <div id="outbox-banner" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 flex justify-between items-center shadow-sm">
+      <div>
+        <span class="font-semibold text-amber-800">Pending Sync: </span>
+        <span id="outbox-count" class="font-bold text-amber-900">0</span> items queued
+      </div>
+      <button onclick="triggerSync()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs px-3 py-1.5 rounded font-medium">Sync Now</button>
+    </div>
+
+    <!-- Local Outbox History Card -->
+    <div id="queue-history-card" class="bg-white p-5 rounded-lg shadow space-y-3 hidden">
+    <div class="flex justify-between items-center border-b pb-2">
+        <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+        <span>📦</span> Queued Offline Logs
+        </h2>
+        <span id="queue-badge-count" class="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">0 pending</span>
+    </div>
+
+    <!-- Queue Items Container -->
+    <div id="queue-list" class="space-y-3 max-h-60 overflow-y-auto divide-y divide-gray-100">
+        <!-- Items rendered dynamically via JS -->
+    </div>
+    </div>
+
+    <!-- API Settings Panel -->
+    <div id="settings-panel" class="hidden bg-white p-5 rounded-lg shadow border space-y-4">
+      <h2 class="text-lg font-bold border-b pb-2 text-gray-700">API Configuration</h2>
+      <div>
+        <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Server URL</label>
+        <input type="url" id="cfg-server" placeholder="https://babybuddy.yourdomain.com" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">API Token</label>
+        <input type="password" id="cfg-token" placeholder="Authorization Token" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm">
+      </div>
+      <!-- NEW HTML WITH CHILD SELECT DROPDOWN -->
+        <div>
+        <div class="flex justify-between items-center mb-1">
+            <label class="block text-xs font-semibold uppercase text-gray-600">Child</label>
+            <button type="button" onclick="fetchChildren()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Fetch Children</button>
+        </div>
+        <select id="cfg-child" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white border-gray-200">
+            <option value="">Fetch children first...</option>
+        </select>
+        </div>
+      <button onclick="saveSettings()" class="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm">Save Configuration</button>
+    </div>
+
+    <!-- Diaper Change Form -->
+    <div class="bg-white p-5 rounded-lg shadow space-y-4">
+      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+        <span>🧷</span> Diaper Change
+      </h2>
+      <div class="grid grid-cols-3 gap-2">
+        <label class="flex items-center justify-center border rounded p-3 cursor-pointer bg-gray-50 hover:bg-blue-50 text-sm font-medium border-gray-200">
+          <input type="checkbox" id="diaper-wet" class="mr-2 h-4 w-4 text-blue-600"> Wet
+        </label>
+        <label class="flex items-center justify-center border rounded p-3 cursor-pointer bg-gray-50 hover:bg-blue-50 text-sm font-medium border-gray-200">
+          <input type="checkbox" id="diaper-solid" class="mr-2 h-4 w-4 text-blue-600"> Solid
+        </label>
+        <select id="diaper-color" class="border rounded p-2 text-sm bg-white border-gray-200">
+          <option value="">Color...</option>
+          <option value="yellow">Yellow</option>
+          <option value="brown">Brown</option>
+          <option value="green">Green</option>
+          <option value="black">Black</option>
+        </select>
+      </div>
+      <input type="text" id="diaper-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+      <button onclick="logDiaper()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Diaper</button>
+    </div>
+
+    <!-- Feeding Form -->
+    <div class="bg-white p-5 rounded-lg shadow space-y-4">
+      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+        <span>🍼</span> Feeding
+      </h2>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
+          <select id="feed-type" class="w-full border rounded p-2 text-sm bg-white border-gray-200">
+            <option value="formula">Formula</option>
+            <option value="breast milk">Breast Milk</option>
+            <option value="fortified breast milk">Fortified Milk</option>
+            <option value="solid food">Solid Food</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Method</label>
+          <select id="feed-method" class="w-full border rounded p-2 text-sm bg-white border-gray-200">
+            <option value="bottle">Bottle</option>
+            <option value="left breast">Left Breast</option>
+            <option value="right breast">Right Breast</option>
+            <option value="both breasts">Both Breasts</option>
+            <option value="self fed">Self Fed</option>
+            <option value="parent fed">Parent Fed</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Amount (ml/oz)</label>
+          <input type="number" id="feed-amount" step="0.1" placeholder="Optional" class="w-full p-2 border rounded text-sm border-gray-200">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Duration (minutes)</label>
+          <input type="number" id="feed-duration" value="15" class="w-full p-2 border rounded text-sm border-gray-200">
+        </div>
+      </div>
+      <input type="text" id="feed-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+      <button onclick="logFeeding()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Feeding</button>
+    </div>
+
+    <!-- Sleep Tracker Form -->
+    <div class="bg-white p-5 rounded-lg shadow space-y-4">
+    <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+        <span>🌙</span> Sleep Tracker
+    </h2>
+
+    <!-- Idle State: Start Button -->
+    <div id="sleep-idle-state" class="space-y-3">
+        <input type="text" id="sleep-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+        <button onclick="startSleepTimer()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
+        <span>▶️</span> Start Sleep Timer
+        </button>
+    </div>
+
+    <!-- Active State: Running Stopwatch -->
+    <div id="sleep-active-state" class="hidden space-y-3 bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-center">
+        <div class="text-xs uppercase font-semibold text-indigo-500">Sleep Timer Running</div>
+        <div id="sleep-timer-display" class="text-3xl font-mono font-bold text-indigo-900">00:00:00</div>
+        <div class="text-xs text-indigo-600" id="sleep-start-time">Started at --:--</div>
+        <button onclick="stopSleepTimer()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
+        <span>⏹️</span> Stop &amp; Log Sleep
+        </button>
+    </div>
+    </div>
+
+    <!-- Floating Toast Notification -->
+    <div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-xs shadow-lg transition-opacity duration-300"></div>
+
+  </main>
+
+  <script>
+  // ==========================================
+  // 1. IndexedDB Initialization via Dexie.js
+  // ==========================================
+  const db = new Dexie('BabyBuddyOfflineDB');
+  db.version(1).stores({
+    outbox: '++id, endpoint, created_at, status', // Stores queued API payloads
+    config: 'key'                                  // Stores Server URL, API Key, Selected Child, Cached Children, Timers
+  });
+
+  // ==========================================
+  // 2. Inline Service Worker for Offline Cache
+  // ==========================================
+  const swCode = `
+    const CACHE_NAME = 'babybuddy-pwa-v1';
+    self.addEventListener('install', e => self.skipWaiting());
+    self.addEventListener('activate', e => self.clients.claim());
+    self.addEventListener('fetch', e => {
+      if (e.request.url.includes('/api/')) return;
+      e.respondWith(
+        fetch(e.request).catch(() => caches.match(e.request))
+      );
+    });
+  `;
+  if ('serviceWorker' in navigator) {
+    const blob = new Blob([swCode], { type: 'application/javascript' });
+    navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(console.error);
+  }
+
+  // ==========================================
+  // 3. Child Fetching & Config Helpers
+  // ==========================================
+  function populateChildSelect(children, selectedId) {
+    const select = document.getElementById('cfg-child');
+    if (!children || children.length === 0) {
+      select.innerHTML = '<option value="">No children found</option>';
+      return;
+    }
+
+    select.innerHTML = children.map(c => {
+      const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || `Child #${c.id}`;
+      const isSelected = selectedId && parseInt(selectedId, 10) === c.id ? 'selected' : '';
+      return `<option value="${c.id}" ${isSelected}>${name}</option>`;
+    }).join('');
+  }
+
+  async function fetchChildren() {
+    const server = document.getElementById('cfg-server').value.replace(/\/$/, "");
+    const token = document.getElementById('cfg-token').value.trim();
+
+    if (!server || !token) {
+      showToast('Enter Server URL and API Token first!');
+      return;
+    }
+
+    try {
+      showToast('Fetching children from server...');
+      const response = await fetch(`${server}/api/children/`, {
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const data = await response.json();
+      const children = data.results || data; // Handles DRF paginated and non-paginated lists
+
+      if (children.length === 0) {
+        showToast('No children registered on BabyBuddy server.');
+        return;
+      }
+
+      // Cache child list locally so dropdown works offline
+      await db.config.put({ key: 'cached_children', value: children });
+
+      const currentChildObj = await db.config.get('child');
+      const selectedId = currentChildObj ? currentChildObj.value : children[0].id;
+
+      populateChildSelect(children, selectedId);
+      showToast(`Loaded ${children.length} child(ren)!`);
+    } catch (err) {
+      console.error('Failed to fetch children:', err);
+      showToast('Failed to fetch children. Check URL/Token or network connection.');
+    }
+  }
+
+  async function loadConfig() {
+    const server = await db.config.get('server');
+    const token = await db.config.get('token');
+    const child = await db.config.get('child');
+    const cachedChildren = await db.config.get('cached_children');
+
+    if (server) document.getElementById('cfg-server').value = server.value;
+    if (token) document.getElementById('cfg-token').value = token.value;
+
+    if (cachedChildren && cachedChildren.value) {
+      populateChildSelect(cachedChildren.value, child ? child.value : null);
+    } else if (child) {
+      const select = document.getElementById('cfg-child');
+      select.innerHTML = `<option value="${child.value}" selected>Child #${child.value}</option>`;
+    }
+
+    if (!server || !token || !child) {
+      document.getElementById('settings-panel').classList.remove('hidden');
+    }
+  }
+
+  async function saveSettings() {
+    const server = document.getElementById('cfg-server').value.replace(/\/$/, "");
+    const token = document.getElementById('cfg-token').value.trim();
+    const childSelect = document.getElementById('cfg-child');
+    const childVal = parseInt(childSelect.value, 10);
+
+    if (!server || !token || isNaN(childVal)) {
+      showToast('Please fill out all configuration fields!');
+      return;
+    }
+
+    await db.config.put({ key: 'server', value: server });
+    await db.config.put({ key: 'token', value: token });
+    await db.config.put({ key: 'child', value: childVal });
+
+    document.getElementById('settings-panel').classList.add('hidden');
+    showToast('Configuration saved!');
+    triggerSync();
+  }
+
+  function toggleSettings() {
+    document.getElementById('settings-panel').classList.toggle('hidden');
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+  }
+
+  function updateNetworkStatus() {
+    const badge = document.getElementById('net-badge');
+    if (navigator.onLine) {
+      badge.textContent = 'Online';
+      badge.className = 'text-xs px-2 py-1 rounded font-semibold bg-emerald-100 text-emerald-800';
+      triggerSync();
+    } else {
+      badge.textContent = 'Offline';
+      badge.className = 'text-xs px-2 py-1 rounded font-semibold bg-red-100 text-red-800';
+    }
+  }
+
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+
+  // ==========================================
+  // 4. Logging Actions (Diapers & Feedings)
+  // ==========================================
+  async function logDiaper() {
+    const childObj = await db.config.get('child');
+    if (!childObj) return showToast('Configure Server & Child ID first!');
+
+    const wet = document.getElementById('diaper-wet').checked;
+    const solid = document.getElementById('diaper-solid').checked;
+    const color = document.getElementById('diaper-color').value || null;
+    const notes = document.getElementById('diaper-notes').value.trim();
+
+    if (!wet && !solid) {
+      return showToast('Select Wet, Solid, or both.');
+    }
+
+    const payload = {
+      child: childObj.value,
+      time: new Date().toISOString(),
+      wet: wet,
+      solid: solid,
+      color: color,
+      notes: notes
+    };
+
+    await db.outbox.add({
+      endpoint: 'changes',
+      payload: payload,
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    });
+
+    document.getElementById('diaper-wet').checked = false;
+    document.getElementById('diaper-solid').checked = false;
+    document.getElementById('diaper-color').value = '';
+    document.getElementById('diaper-notes').value = '';
+
+    showToast('Diaper entry queued locally!');
+    await updateOutboxUI();
+    triggerSync();
+  }
+
+  async function logFeeding() {
+    const childObj = await db.config.get('child');
+    if (!childObj) return showToast('Configure Server & Child ID first!');
+
+    const type = document.getElementById('feed-type').value;
+    const method = document.getElementById('feed-method').value;
+    const amountVal = document.getElementById('feed-amount').value;
+    const durationVal = parseInt(document.getElementById('feed-duration').value || '15', 10);
+    const notes = document.getElementById('feed-notes').value.trim();
+
+    const now = new Date();
+    const startTime = new Date(now.getTime() - durationVal * 60000);
+
+    const payload = {
+      child: childObj.value,
+      start: startTime.toISOString(),
+      end: now.toISOString(),
+      type: type,
+      method: method,
+      amount: amountVal ? parseFloat(amountVal) : null,
+      notes: notes
+    };
+
+    await db.outbox.add({
+      endpoint: 'feedings',
+      payload: payload,
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    });
+
+    document.getElementById('feed-amount').value = '';
+    document.getElementById('feed-notes').value = '';
+
+    showToast('Feeding entry queued locally!');
+    await updateOutboxUI();
+    triggerSync();
+  }
+
+  // ==========================================
+  // 5. Offline Sleep Timer Engine
+  // ==========================================
+  let timerInterval = null;
+
+  async function checkActiveSleepTimer() {
+    const activeTimer = await db.config.get('active_sleep_timer');
+    if (activeTimer) {
+      showActiveTimerUI(activeTimer.value);
+    } else {
+      showIdleTimerUI();
+    }
+  }
+
+  async function startSleepTimer() {
+    const startTimeISO = new Date().toISOString();
+    await db.config.put({ key: 'active_sleep_timer', value: startTimeISO });
+    showActiveTimerUI(startTimeISO);
+    showToast('Sleep timer started!');
+  }
+
+  function showActiveTimerUI(startTimeISO) {
+    document.getElementById('sleep-idle-state').classList.add('hidden');
+    document.getElementById('sleep-active-state').classList.remove('hidden');
+
+    const startDate = new Date(startTimeISO);
+    document.getElementById('sleep-start-time').textContent = 
+      `Started at ${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    if (timerInterval) clearInterval(timerInterval);
+
+    function updateDisplay() {
+      const elapsedSec = Math.floor((new Date() - startDate) / 1000);
+      const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, '0');
+      const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, '0');
+      const secs = String(elapsedSec % 60).padStart(2, '0');
+      document.getElementById('sleep-timer-display').textContent = `${hrs}:${mins}:${secs}`;
+    }
+
+    updateDisplay();
+    timerInterval = setInterval(updateDisplay, 1000);
+  }
+
+  function showIdleTimerUI() {
+    if (timerInterval) clearInterval(timerInterval);
+    document.getElementById('sleep-active-state').classList.add('hidden');
+    document.getElementById('sleep-idle-state').classList.remove('hidden');
+  }
+
+  async function stopSleepTimer() {
+    const activeTimer = await db.config.get('active_sleep_timer');
+    const childObj = await db.config.get('child');
+
+    if (!activeTimer || !childObj) {
+      return showToast('Configure Server & Child ID first!');
+    }
+
+    const startTime = activeTimer.value;
+    const endTime = new Date().toISOString();
+    const notes = document.getElementById('sleep-notes').value.trim();
+
+    const payload = {
+      child: childObj.value,
+      start: startTime,
+      end: endTime,
+      notes: notes
+    };
+
+    await db.outbox.add({
+      endpoint: 'sleep',
+      payload: payload,
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    });
+
+    await db.config.delete('active_sleep_timer');
+    document.getElementById('sleep-notes').value = '';
+    showIdleTimerUI();
+
+    showToast('Sleep session queued locally!');
+    await updateOutboxUI();
+    triggerSync();
+  }
+
+  // ==========================================
+  // 6. Outbox History Queue UI & Item Removal
+  // ==========================================
+  function formatOutboxSummary(item) {
+    const p = item.payload;
+    const timeStr = new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (item.endpoint === 'changes') {
+      const types = [];
+      if (p.wet) types.push('Wet');
+      if (p.solid) types.push('Solid');
+      const details = types.join(' + ') + (p.color ? ` (${p.color})` : '');
+      return {
+        icon: '🧷',
+        title: 'Diaper Change',
+        desc: `${details || 'Logged'} • ${timeStr}`
+      };
+    }
+
+    if (item.endpoint === 'feedings') {
+      const amt = p.amount ? `${p.amount} ml/oz` : '';
+      const descParts = [p.type, p.method, amt].filter(Boolean).join(' • ');
+      return {
+        icon: '🍼',
+        title: 'Feeding',
+        desc: `${descParts} • ${timeStr}`
+      };
+    }
+
+    if (item.endpoint === 'sleep') {
+      const start = new Date(p.start);
+      const end = new Date(p.end);
+      const durationMin = Math.max(1, Math.round((end - start) / 60000));
+      return {
+        icon: '🌙',
+        title: 'Sleep Session',
+        desc: `${durationMin} min duration • ${timeStr}`
+      };
+    }
+
+    return { icon: '📝', title: item.endpoint, desc: timeStr };
+  }
+
+  async function renderQueueHistory() {
+    const card = document.getElementById('queue-history-card');
+    const list = document.getElementById('queue-list');
+    const badge = document.getElementById('queue-badge-count');
+
+    if (!card || !list || !badge) return;
+
+    const items = await db.outbox.reverse().toArray();
+
+    if (items.length === 0) {
+      card.classList.add('hidden');
+      return;
+    }
+
+    card.classList.remove('hidden');
+    badge.textContent = `${items.length} pending`;
+
+    list.innerHTML = items.map(item => {
+      const meta = formatOutboxSummary(item);
+      return `
+        <div class="pt-2 first:pt-0 flex justify-between items-center text-sm">
+          <div class="flex items-center gap-3 overflow-hidden pr-2">
+            <span class="text-xl leading-none">${meta.icon}</span>
+            <div class="truncate">
+              <div class="font-semibold text-gray-800 leading-tight">${meta.title}</div>
+              <div class="text-xs text-gray-500 truncate">${meta.desc}</div>
+            </div>
+          </div>
+          <button onclick="deleteQueuedItem(${item.id})" title="Cancel and remove item" class="text-gray-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50 transition-colors">
+            🗑️
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function deleteQueuedItem(id) {
+    await db.outbox.delete(id);
+    showToast('Queued log removed!');
+    await updateOutboxUI();
+  }
+
+  async function updateOutboxUI() {
+    const count = await db.outbox.count();
+    const banner = document.getElementById('outbox-banner');
+    const countSpan = document.getElementById('outbox-count');
+    
+    if (count > 0) {
+      if (countSpan) countSpan.textContent = count;
+      if (banner) banner.classList.remove('hidden');
+    } else {
+      if (banner) banner.classList.add('hidden');
+    }
+
+    await renderQueueHistory();
+  }
+
+  // ==========================================
+  // 7. Outbox Background Sync Engine
+  // ==========================================
+  let isSyncing = false;
+
+  async function triggerSync() {
+    if (isSyncing || !navigator.onLine) return;
+
+    const serverObj = await db.config.get('server');
+    const tokenObj = await db.config.get('token');
+
+    if (!serverObj || !tokenObj) return;
+
+    const pendingItems = await db.outbox.toArray();
+    if (pendingItems.length === 0) return;
+
+    isSyncing = true;
+    let syncedCount = 0;
+
+    for (const item of pendingItems) {
+      try {
+        const response = await fetch(`${serverObj.value}/api/${item.endpoint}/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${tokenObj.value}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(item.payload)
+        });
+
+        if (response.ok || response.status === 201) {
+          await db.outbox.delete(item.id);
+          syncedCount++;
+        } else {
+          console.error('API Error during sync:', await response.text());
+        }
+      } catch (err) {
+        console.error('Network disconnect during sync loop:', err);
+        break;
+      }
+    }
+
+    isSyncing = false;
+    await updateOutboxUI();
+
+    if (syncedCount > 0) {
+      showToast(`Synced ${syncedCount} queued log(s) to server!`);
+    }
+  }
+
+  // ==========================================
+  // 8. Application Initialization
+  // ==========================================
+  loadConfig();
+  checkActiveSleepTimer();
+  updateNetworkStatus();
+  updateOutboxUI();
+</script>
+</body>
+</html>
