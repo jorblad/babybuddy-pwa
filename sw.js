@@ -1,12 +1,11 @@
 importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js');
 
-const CACHE_NAME = 'babybuddy-pwa-v2';
+const CACHE_NAME = 'babybuddy-pwa-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js',
-  'https://cdn.tailwindcss.com'
+  'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js'
 ];
 
 // Initialize Dexie inside Service Worker
@@ -16,9 +15,18 @@ db.version(1).stores({
   outbox: '++id, status'
 });
 
+// Install Event: Safely cache assets without crashing on CDN CORS issues
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of ASSETS_TO_CACHE) {
+        try {
+          await cache.add(asset);
+        } catch (err) {
+          console.warn('Skipped caching asset:', asset, err);
+        }
+      }
+    })
   );
   self.skipWaiting();
 });
@@ -35,7 +43,7 @@ self.addEventListener('activate', (event) => {
 // Fetch handler for offline app shell
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname.includes('/api/')) return; // Skip API calls from static caching
+  if (url.pathname.includes('/api/')) return; // Pass BabyBuddy API through
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
@@ -53,8 +61,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// --- BACKGROUND SYNC EVENT ---
-// Triggers automatically when network returns, even if the app is closed
+// Background Sync Handler for Queued Outbox Items
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-babybuddy-outbox') {
     event.waitUntil(processBackgroundSync());
@@ -83,8 +90,8 @@ async function processBackgroundSync() {
         await db.outbox.delete(item.id);
       }
     } catch (err) {
-      console.error('Background sync failed for item:', item.id, err);
-      break; // Stop loop if connection cuts out again
+      console.error('Background sync failed:', err);
+      break;
     }
   }
 }
