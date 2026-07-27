@@ -1,73 +1,87 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BabyBuddy Offline Quick-Log</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#ffffff', dark: '#1e1e2e' },
+            card: { DEFAULT: '#ffffff', dark: '#2a2a3c' },
+          }
+        }
+      }
+    }
+  </script>
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👶</text></svg>">
 </head>
-<body class="bg-gray-100 min-h-screen text-gray-800 pb-12">
+<body class="bg-gray-100 dark:bg-gray-900 min-h-screen text-gray-800 dark:text-gray-200 pb-12 transition-colors">
 
   <!-- Header -->
-  <header class="bg-blue-600 text-white p-4 shadow-md sticky top-0 z-10">
+  <header class="bg-blue-600 dark:bg-blue-800 text-white p-4 shadow-md sticky top-0 z-10">
     <div class="max-w-md mx-auto flex justify-between items-center">
       <h1 class="text-xl font-bold flex items-center gap-2">
         <span>👶</span> BabyBuddy
       </h1>
       <div class="flex items-center gap-2">
         <span id="net-badge" class="text-xs px-2 py-1 rounded font-semibold bg-gray-200 text-gray-800">Checking...</span>
-        <button onclick="toggleSettings()" class="text-sm bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded border border-blue-500">⚙️ Config</button>
+        <button onclick="toggleTheme()" id="btn-theme" class="text-sm bg-blue-700 dark:bg-blue-900 hover:bg-blue-800 px-2 py-1 rounded border border-blue-500" title="Toggle theme">🌙</button>
+        <button onclick="toggleSettings()" class="text-sm bg-blue-700 dark:bg-blue-900 hover:bg-blue-800 px-3 py-1 rounded border border-blue-500">⚙️ Config</button>
       </div>
     </div>
   </header>
 
   <!-- Offline Warning Banner -->
-  <div id="offline-banner" class="hidden bg-red-50 border-b border-red-200 text-red-700 text-xs text-center py-1.5 font-medium">
+  <div id="offline-banner" class="hidden bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs text-center py-1.5 font-medium">
     You are offline — entries will be queued and synced when connectivity returns.
   </div>
 
   <main class="max-w-md mx-auto p-4 space-y-6">
 
     <!-- Outbox Status Banner -->
-    <div id="outbox-banner" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 flex justify-between items-center shadow-sm">
+    <div id="outbox-banner" class="hidden bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4 flex justify-between items-center shadow-sm">
       <div>
-        <span class="font-semibold text-amber-800">Pending Sync: </span>
-        <span id="outbox-count" class="font-bold text-amber-900">0</span> items queued
+        <span class="font-semibold text-amber-800 dark:text-amber-300">Pending Sync: </span>
+        <span id="outbox-count" class="font-bold text-amber-900 dark:text-amber-200">0</span> <span class="text-amber-800 dark:text-amber-300 text-sm">items queued</span>
       </div>
       <button onclick="triggerSync()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs px-3 py-1.5 rounded font-medium">Sync Now</button>
     </div>
 
     <!-- Local Outbox History Card -->
-    <div id="queue-history-card" class="hidden bg-white p-5 rounded-lg shadow space-y-3">
-      <div class="flex justify-between items-center border-b pb-2">
-        <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+    <div id="queue-history-card" class="hidden bg-white dark:bg-gray-800 p-5 rounded-lg shadow space-y-3">
+      <div class="flex justify-between items-center border-b border-gray-200 dark:border-gray-600 pb-2">
+        <h2 class="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
           <span>📦</span> Queued Offline Logs
         </h2>
-        <span id="queue-badge-count" class="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">0 pending</span>
+        <span id="queue-badge-count" class="text-xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold px-2 py-0.5 rounded-full">0 pending</span>
       </div>
-      <div id="queue-list" class="space-y-3 max-h-60 overflow-y-auto divide-y divide-gray-100"></div>
+      <div id="queue-list" class="space-y-3 max-h-60 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-600"></div>
     </div>
 
     <!-- API Settings Panel -->
-    <div id="settings-panel" class="hidden bg-white p-5 rounded-lg shadow border space-y-4">
-      <h2 class="text-lg font-bold border-b pb-2 text-gray-700">API Configuration</h2>
+    <div id="settings-panel" class="hidden bg-white dark:bg-gray-800 p-5 rounded-lg shadow border border-gray-200 dark:border-gray-600 space-y-4">
+      <h2 class="text-lg font-bold border-b border-gray-200 dark:border-gray-600 pb-2 text-gray-700 dark:text-gray-200">API Configuration</h2>
       <div>
-        <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Server URL</label>
-        <input type="url" id="cfg-server" placeholder="https://babybuddy.yourdomain.com" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm">
+        <label class="block text-xs font-semibold uppercase text-gray-600 dark:text-gray-400 mb-1">Server URL</label>
+        <input type="url" id="cfg-server" placeholder="https://babybuddy.yourdomain.com" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       </div>
       <div>
-        <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">API Token</label>
-        <input type="password" id="cfg-token" placeholder="Authorization Token" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm">
+        <label class="block text-xs font-semibold uppercase text-gray-600 dark:text-gray-400 mb-1">API Token</label>
+        <input type="password" id="cfg-token" placeholder="Authorization Token" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       </div>
       <div>
         <div class="flex justify-between items-center mb-1">
-          <label class="block text-xs font-semibold uppercase text-gray-600">Child</label>
-          <button type="button" onclick="fetchChildren()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Fetch Children</button>
+          <label class="block text-xs font-semibold uppercase text-gray-600 dark:text-gray-400">Child</label>
+          <button type="button" onclick="fetchChildren()" class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium">🔄 Fetch Children</button>
         </div>
-        <select id="cfg-child" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white border-gray-200">
+        <select id="cfg-child" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
           <option value="">Fetch children first...</option>
         </select>
       </div>
@@ -75,18 +89,18 @@
     </div>
 
     <!-- Diaper Change Form -->
-    <div class="bg-white p-5 rounded-lg shadow space-y-4">
-      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+    <div class="bg-white dark:bg-gray-800 p-5 rounded-lg shadow space-y-4">
+      <h2 class="text-lg font-bold text-gray-800 dark:text-gray-100 border-b border-gray-200 dark:border-gray-600 pb-2 flex items-center gap-2">
         <span>🧷</span> Diaper Change
       </h2>
       <div class="grid grid-cols-3 gap-2">
-        <label class="flex items-center justify-center border rounded p-3 cursor-pointer bg-gray-50 hover:bg-blue-50 text-sm font-medium border-gray-200">
+        <label class="flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded p-3 cursor-pointer bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-gray-600 text-sm font-medium">
           <input type="checkbox" id="diaper-wet" class="mr-2 h-4 w-4 text-blue-600"> Wet
         </label>
-        <label class="flex items-center justify-center border rounded p-3 cursor-pointer bg-gray-50 hover:bg-blue-50 text-sm font-medium border-gray-200">
+        <label class="flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded p-3 cursor-pointer bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-gray-600 text-sm font-medium">
           <input type="checkbox" id="diaper-solid" class="mr-2 h-4 w-4 text-blue-600"> Solid
         </label>
-        <select id="diaper-color" class="border rounded p-2 text-sm bg-white border-gray-200">
+        <select id="diaper-color" class="border border-gray-200 dark:border-gray-600 rounded p-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
           <option value="">Color...</option>
           <option value="yellow">Yellow</option>
           <option value="brown">Brown</option>
@@ -94,32 +108,32 @@
           <option value="black">Black</option>
         </select>
       </div>
-      <input type="text" id="diaper-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+      <input type="text" id="diaper-notes" placeholder="Notes (optional)" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       <div>
         <div class="flex justify-between items-center mb-1">
-          <label class="block text-xs font-semibold text-gray-500">Tags</label>
-          <button type="button" onclick="fetchTags()" class="text-xs text-blue-500 hover:text-blue-700">🔄 Refresh</button>
+          <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400">Tags</label>
+          <button type="button" onclick="fetchTags()" class="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">🔄 Refresh</button>
         </div>
         <div id="diaper-tag-pills" class="flex flex-wrap gap-1 mb-1"></div>
-        <input type="text" id="diaper-tags" placeholder="Type to add custom tag" class="w-full p-2 border rounded text-sm border-gray-200" autocomplete="off">
-        <div id="diaper-tag-suggestions" class="hidden mt-1 bg-white border rounded text-xs max-h-24 overflow-y-auto shadow-sm"></div>
+        <input type="text" id="diaper-tags" placeholder="Type to add custom tag" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200" autocomplete="off">
+        <div id="diaper-tag-suggestions" class="hidden mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs max-h-24 overflow-y-auto shadow-sm"></div>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-500 mb-1">Time (optional, leave blank for now)</label>
-        <input type="datetime-local" id="diaper-time" class="w-full p-2 border rounded text-sm border-gray-200">
+        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Time (optional, leave blank for now)</label>
+        <input type="datetime-local" id="diaper-time" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       </div>
       <button onclick="logDiaper()" id="btn-log-diaper" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Diaper</button>
     </div>
 
     <!-- Feeding Form -->
-    <div class="bg-white p-5 rounded-lg shadow space-y-4">
-      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+    <div class="bg-white dark:bg-gray-800 p-5 rounded-lg shadow space-y-4">
+      <h2 class="text-lg font-bold text-gray-800 dark:text-gray-100 border-b border-gray-200 dark:border-gray-600 pb-2 flex items-center gap-2">
         <span>🍼</span> Feeding
       </h2>
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
-          <select id="feed-type" class="w-full border rounded p-2 text-sm bg-white border-gray-200">
+          <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Type</label>
+          <select id="feed-type" class="w-full border border-gray-200 dark:border-gray-600 rounded p-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
             <option value="formula">Formula</option>
             <option value="breast milk">Breast Milk</option>
             <option value="fortified breast milk">Fortified Milk</option>
@@ -127,8 +141,8 @@
           </select>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-gray-500 mb-1">Method</label>
-          <select id="feed-method" class="w-full border rounded p-2 text-sm bg-white border-gray-200">
+          <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Method</label>
+          <select id="feed-method" class="w-full border border-gray-200 dark:border-gray-600 rounded p-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
             <option value="bottle">Bottle</option>
             <option value="left breast">Left Breast</option>
             <option value="right breast">Right Breast</option>
@@ -140,41 +154,41 @@
       </div>
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <label class="block text-xs font-semibold text-gray-500 mb-1">Amount (ml/oz)</label>
-          <input type="number" id="feed-amount" step="0.1" placeholder="Optional" class="w-full p-2 border rounded text-sm border-gray-200">
+          <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Amount (ml/oz)</label>
+          <input type="number" id="feed-amount" step="0.1" placeholder="Optional" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-gray-500 mb-1">Duration (minutes)</label>
-          <input type="number" id="feed-duration" value="0" class="w-full p-2 border rounded text-sm border-gray-200">
+          <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Duration (minutes)</label>
+          <input type="number" id="feed-duration" value="0" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
         </div>
       </div>
-      <input type="text" id="feed-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+      <input type="text" id="feed-notes" placeholder="Notes (optional)" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       <div>
-        <label class="block text-xs font-semibold text-gray-500 mb-1">Time (optional, leave blank for now)</label>
-        <input type="datetime-local" id="feed-time" class="w-full p-2 border rounded text-sm border-gray-200">
+        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Time (optional, leave blank for now)</label>
+        <input type="datetime-local" id="feed-time" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
       </div>
       <button onclick="logFeeding()" id="btn-log-feeding" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Feeding</button>
     </div>
 
     <!-- Sleep Tracker Form -->
-    <div class="bg-white p-5 rounded-lg shadow space-y-4">
-      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+    <div class="bg-white dark:bg-gray-800 p-5 rounded-lg shadow space-y-4">
+      <h2 class="text-lg font-bold text-gray-800 dark:text-gray-100 border-b border-gray-200 dark:border-gray-600 pb-2 flex items-center gap-2">
         <span>🌙</span> Sleep Tracker
       </h2>
 
       <!-- Idle State: Start Button -->
       <div id="sleep-idle-state" class="space-y-3">
-        <input type="text" id="sleep-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
+        <input type="text" id="sleep-notes" placeholder="Notes (optional)" class="w-full p-2 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200">
         <button onclick="startSleepTimer()" id="btn-start-sleep" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
           <span>▶️</span> Start Sleep Timer
         </button>
       </div>
 
       <!-- Active State: Running Stopwatch -->
-      <div id="sleep-active-state" class="hidden space-y-3 bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-center">
-        <div class="text-xs uppercase font-semibold text-indigo-500">Sleep Timer Running</div>
-        <div id="sleep-timer-display" class="text-3xl font-mono font-bold text-indigo-900">00:00:00</div>
-        <div class="text-xs text-indigo-600" id="sleep-start-time">Started at --:--</div>
+      <div id="sleep-active-state" class="hidden space-y-3 bg-indigo-50 dark:bg-indigo-900/30 p-4 rounded-lg border border-indigo-100 dark:border-indigo-700 text-center">
+        <div class="text-xs uppercase font-semibold text-indigo-500 dark:text-indigo-300">Sleep Timer Running</div>
+        <div id="sleep-timer-display" class="text-3xl font-mono font-bold text-indigo-900 dark:text-indigo-100">00:00:00</div>
+        <div class="text-xs text-indigo-600 dark:text-indigo-300" id="sleep-start-time">Started at --:--</div>
         <button onclick="stopSleepTimer()" id="btn-stop-sleep" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
           <span>⏹️</span> Stop &amp; Log Sleep
         </button>
@@ -182,18 +196,18 @@
     </div>
 
     <!-- Recent Server History Card -->
-    <div id="server-history-card" class="bg-white p-5 rounded-lg shadow space-y-3 hidden">
-      <div class="flex justify-between items-center border-b pb-2">
-        <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+    <div id="server-history-card" class="bg-white dark:bg-gray-800 p-5 rounded-lg shadow space-y-3 hidden">
+      <div class="flex justify-between items-center border-b border-gray-200 dark:border-gray-600 pb-2">
+        <h2 class="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
           <span>📜</span> Recent Server History
         </h2>
-        <button onclick="fetchRecentHistory()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Refresh</button>
+        <button onclick="fetchRecentHistory()" class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium">🔄 Refresh</button>
       </div>
-      <div id="server-history-list" class="space-y-3 max-h-80 overflow-y-auto divide-y divide-gray-100"></div>
+      <div id="server-history-list" class="space-y-3 max-h-80 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-600"></div>
     </div>
 
     <!-- Floating Toast Notification -->
-    <div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-xs shadow-lg transition-opacity duration-300"></div>
+    <div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2 rounded-full text-xs shadow-lg transition-opacity duration-300"></div>
 
   </main>
 
@@ -204,6 +218,32 @@
     const div = document.createElement('div');
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
+  }
+
+  // --- Theme ---
+  async function loadTheme() {
+    const saved = await db.config.get('theme');
+    const isDark = saved ? saved.value === 'dark' : true;
+    applyTheme(isDark);
+  }
+
+  function applyTheme(isDark) {
+    const html = document.documentElement;
+    const btn = document.getElementById('btn-theme');
+    if (isDark) {
+      html.classList.add('dark');
+      if (btn) btn.textContent = '☀️';
+    } else {
+      html.classList.remove('dark');
+      if (btn) btn.textContent = '🌙';
+    }
+  }
+
+  async function toggleTheme() {
+    const isDark = document.documentElement.classList.contains('dark');
+    const newDark = !isDark;
+    applyTheme(newDark);
+    await db.config.put({ key: 'theme', value: newDark ? 'dark' : 'light' });
   }
 
   // --- Dexie Database Initialization ---
@@ -299,8 +339,8 @@
   }
 
   // --- Tag System ---
-  let cachedTags = [];      // full tag objects [{name, last_used}, ...]
-  let selectedTags = [];    // currently selected tag names
+  let cachedTags = [];
+  let selectedTags = [];
 
   async function fetchTags() {
     const serverObj = await db.config.get('server');
@@ -337,15 +377,15 @@
 
     const recent = cachedTags.slice(0, 5);
     if (recent.length === 0) {
-      container.innerHTML = '<span class="text-xs text-gray-400">No tags yet</span>';
+      container.innerHTML = '<span class="text-xs text-gray-400 dark:text-gray-500">No tags yet</span>';
       return;
     }
 
     container.innerHTML = recent.map(t => {
       const isSelected = selectedTags.some(s => s.toLowerCase() === t.name.toLowerCase());
       const cls = isSelected
-        ? 'bg-blue-100 text-blue-800 border-blue-300'
-        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-blue-50 hover:text-blue-600';
+        ? 'bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600'
+        : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-gray-600 hover:text-blue-600 dark:hover:text-blue-300';
       return `<button type="button" data-tag="${escapeHtml(t.name)}" class="tag-pill px-2 py-0.5 text-xs rounded-full border font-medium ${cls}">${escapeHtml(t.name)}</button>`;
     }).join('');
 
@@ -427,7 +467,7 @@
       }
 
       suggestionsEl.innerHTML = matches.slice(0, 5).map(t =>
-        `<div class="px-2 py-1 hover:bg-blue-50 cursor-pointer text-gray-700" data-tag="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>`
+        `<div class="px-2 py-1 hover:bg-blue-50 dark:hover:bg-gray-600 cursor-pointer text-gray-700 dark:text-gray-200" data-tag="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>`
       ).join('');
       suggestionsEl.classList.remove('hidden');
 
@@ -733,11 +773,11 @@
 
     if (listEl) {
       if (pending.length === 0) {
-        listEl.innerHTML = '<div class="text-xs text-gray-400 py-1">No pending items in queue.</div>';
+        listEl.innerHTML = '<div class="text-xs text-gray-400 dark:text-gray-500 py-1">No pending items in queue.</div>';
       } else {
         listEl.innerHTML = pending.map(i => `
-          <div class="text-xs bg-amber-50 border border-amber-200 p-2 rounded flex justify-between items-center">
-            <span><strong>${escapeHtml(i.endpoint.toUpperCase())}:</strong> ${new Date(i.created_at).toLocaleTimeString()}</span>
+          <div class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-2 rounded flex justify-between items-center">
+            <span class="text-gray-800 dark:text-gray-200"><strong>${escapeHtml(i.endpoint.toUpperCase())}:</strong> ${new Date(i.created_at).toLocaleTimeString()}</span>
             <button onclick="deleteOutboxItem(${i.id})" class="text-red-500 hover:text-red-700 font-medium ml-2 text-xs">✕</button>
           </div>
         `).join('');
@@ -874,11 +914,11 @@
           <div class="flex items-center gap-3 overflow-hidden pr-2">
             <span class="text-xl leading-none">${escapeHtml(item.icon)}</span>
             <div class="truncate">
-              <div class="font-semibold text-gray-800 leading-tight">${escapeHtml(item.title)}</div>
-              <div class="text-xs text-gray-500 truncate">${escapeHtml(item.desc)}</div>
+              <div class="font-semibold text-gray-800 dark:text-gray-100 leading-tight">${escapeHtml(item.title)}</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(item.desc)}</div>
             </div>
           </div>
-          <div class="text-right text-xs text-gray-400 whitespace-nowrap">
+          <div class="text-right text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
             <div>${timeStr}</div>
             <div class="text-[10px]">${dateStr}</div>
           </div>
@@ -921,6 +961,7 @@
   window.addEventListener('offline', updateNetworkStatus);
 
   document.addEventListener('DOMContentLoaded', async () => {
+    await loadTheme();
     await loadConfig();
     await fetchTags();
     setupTagAutocomplete('diaper-tags', 'diaper-tag-suggestions');
