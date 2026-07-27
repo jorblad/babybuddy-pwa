@@ -161,6 +161,8 @@ async function processBackgroundSync() {
 
       if (res.ok) {
         await db.outbox.delete(item.id);
+      } else {
+        console.error('Sync API error:', res.status, await res.text());
       }
     } catch (err) {
       console.error('Background sync failed:', err);
@@ -168,7 +170,6 @@ async function processBackgroundSync() {
     }
   }
 
-  // After syncing outbox, also refresh history cache
   await pollHistory();
 }
 

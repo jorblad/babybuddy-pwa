@@ -4,9 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BabyBuddy Offline Quick-Log</title>
-  <!-- Inline PWA Manifest -->
   <link rel="manifest" href="manifest.json">
-  <!-- Tailwind CSS & Dexie.js via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👶</text></svg>">
@@ -26,6 +24,11 @@
     </div>
   </header>
 
+  <!-- Offline Warning Banner -->
+  <div id="offline-banner" class="hidden bg-red-50 border-b border-red-200 text-red-700 text-xs text-center py-1.5 font-medium">
+    You are offline — entries will be queued and synced when connectivity returns.
+  </div>
+
   <main class="max-w-md mx-auto p-4 space-y-6">
 
     <!-- Outbox Status Banner -->
@@ -38,18 +41,14 @@
     </div>
 
     <!-- Local Outbox History Card -->
-    <div id="queue-history-card" class="bg-white p-5 rounded-lg shadow space-y-3 hidden">
-    <div class="flex justify-between items-center border-b pb-2">
+    <div id="queue-history-card" class="hidden bg-white p-5 rounded-lg shadow space-y-3">
+      <div class="flex justify-between items-center border-b pb-2">
         <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
-        <span>📦</span> Queued Offline Logs
+          <span>📦</span> Queued Offline Logs
         </h2>
         <span id="queue-badge-count" class="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">0 pending</span>
-    </div>
-
-    <!-- Queue Items Container -->
-    <div id="queue-list" class="space-y-3 max-h-60 overflow-y-auto divide-y divide-gray-100">
-        <!-- Items rendered dynamically via JS -->
-    </div>
+      </div>
+      <div id="queue-list" class="space-y-3 max-h-60 overflow-y-auto divide-y divide-gray-100"></div>
     </div>
 
     <!-- API Settings Panel -->
@@ -63,17 +62,16 @@
         <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">API Token</label>
         <input type="password" id="cfg-token" placeholder="Authorization Token" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm">
       </div>
-      <!-- NEW HTML WITH CHILD SELECT DROPDOWN -->
-        <div>
+      <div>
         <div class="flex justify-between items-center mb-1">
-            <label class="block text-xs font-semibold uppercase text-gray-600">Child</label>
-            <button type="button" onclick="fetchChildren()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Fetch Children</button>
+          <label class="block text-xs font-semibold uppercase text-gray-600">Child</label>
+          <button type="button" onclick="fetchChildren()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Fetch Children</button>
         </div>
         <select id="cfg-child" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm bg-white border-gray-200">
-            <option value="">Fetch children first...</option>
+          <option value="">Fetch children first...</option>
         </select>
-        </div>
-      <button onclick="saveConfig()" class="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm">Save Configuration</button>
+      </div>
+      <button onclick="saveConfig()" id="btn-save-config" class="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm">Save Configuration</button>
     </div>
 
     <!-- Diaper Change Form -->
@@ -97,7 +95,11 @@
         </select>
       </div>
       <input type="text" id="diaper-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
-      <button onclick="logDiaper()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Diaper</button>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 mb-1">Time (optional, leave blank for now)</label>
+        <input type="datetime-local" id="diaper-time" class="w-full p-2 border rounded text-sm border-gray-200">
+      </div>
+      <button onclick="logDiaper()" id="btn-log-diaper" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Diaper</button>
     </div>
 
     <!-- Feeding Form -->
@@ -138,32 +140,36 @@
         </div>
       </div>
       <input type="text" id="feed-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
-      <button onclick="logFeeding()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Feeding</button>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 mb-1">Time (optional, leave blank for now)</label>
+        <input type="datetime-local" id="feed-time" class="w-full p-2 border rounded text-sm border-gray-200">
+      </div>
+      <button onclick="logFeeding()" id="btn-log-feeding" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded shadow-sm text-sm">Log Feeding</button>
     </div>
 
     <!-- Sleep Tracker Form -->
     <div class="bg-white p-5 rounded-lg shadow space-y-4">
-    <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+      <h2 class="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
         <span>🌙</span> Sleep Tracker
-    </h2>
+      </h2>
 
-    <!-- Idle State: Start Button -->
-    <div id="sleep-idle-state" class="space-y-3">
+      <!-- Idle State: Start Button -->
+      <div id="sleep-idle-state" class="space-y-3">
         <input type="text" id="sleep-notes" placeholder="Notes (optional)" class="w-full p-2 border rounded text-sm border-gray-200">
-        <button onclick="startSleepTimer()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
-        <span>▶️</span> Start Sleep Timer
+        <button onclick="startSleepTimer()" id="btn-start-sleep" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
+          <span>▶️</span> Start Sleep Timer
         </button>
-    </div>
+      </div>
 
-    <!-- Active State: Running Stopwatch -->
-    <div id="sleep-active-state" class="hidden space-y-3 bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-center">
+      <!-- Active State: Running Stopwatch -->
+      <div id="sleep-active-state" class="hidden space-y-3 bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-center">
         <div class="text-xs uppercase font-semibold text-indigo-500">Sleep Timer Running</div>
         <div id="sleep-timer-display" class="text-3xl font-mono font-bold text-indigo-900">00:00:00</div>
         <div class="text-xs text-indigo-600" id="sleep-start-time">Started at --:--</div>
-        <button onclick="stopSleepTimer()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
-        <span>⏹️</span> Stop &amp; Log Sleep
+        <button onclick="stopSleepTimer()" id="btn-stop-sleep" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded shadow-sm text-sm flex justify-center items-center gap-2">
+          <span>⏹️</span> Stop &amp; Log Sleep
         </button>
-    </div>
+      </div>
     </div>
 
     <!-- Recent Server History Card -->
@@ -174,10 +180,7 @@
         </h2>
         <button onclick="fetchRecentHistory()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">🔄 Refresh</button>
       </div>
-
-      <div id="server-history-list" class="space-y-3 max-h-80 overflow-y-auto divide-y divide-gray-100">
-        <!-- Server logs rendered dynamically via JS -->
-      </div>
+      <div id="server-history-list" class="space-y-3 max-h-80 overflow-y-auto divide-y divide-gray-100"></div>
     </div>
 
     <!-- Floating Toast Notification -->
@@ -186,12 +189,24 @@
   </main>
 
   <script>
+  // --- Utility ---
+  function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
   // --- Dexie Database Initialization ---
   const db = new Dexie('BabyBuddyPWA');
   db.version(1).stores({
-    config: 'key',             // Stores settings & cached server history
-    outbox: '++id, status'     // Offline queue
+    config: 'key',
+    outbox: '++id, status'
   });
+
+  let appLoaded = false;
+  let sleepTimerInterval = null;
+  let sleepStartTime = null;
 
   // --- Core Configuration Functions ---
   async function loadConfig() {
@@ -208,6 +223,7 @@
   }
 
   async function saveConfig() {
+    const btn = document.getElementById('btn-save-config');
     const serverUrl = document.getElementById('cfg-server').value.replace(/\/+$/, '');
     const apiToken = document.getElementById('cfg-token').value.trim();
     const childSelect = document.getElementById('cfg-child');
@@ -217,15 +233,25 @@
       return showToast('Please provide both Server URL and API Token');
     }
 
-    await db.config.put({ key: 'server', value: serverUrl });
-    await db.config.put({ key: 'token', value: apiToken });
-    if (selectedChild) {
-      await db.config.put({ key: 'child', value: selectedChild });
-    }
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      await db.config.put({ key: 'server', value: serverUrl });
+      await db.config.put({ key: 'token', value: apiToken });
+      if (selectedChild) {
+        await db.config.put({ key: 'child', value: selectedChild });
+      }
 
-    showToast('Settings saved!');
-    await fetchChildren(serverUrl, apiToken, selectedChild);
-    await fetchRecentHistory();
+      showToast('Settings saved!');
+      await fetchChildren(serverUrl, apiToken, selectedChild);
+      await fetchRecentHistory();
+    } catch (err) {
+      showToast('Failed to save settings');
+      console.error('saveConfig error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Configuration';
+    }
   }
 
   async function fetchChildren(serverUrl, apiToken, selectedChildId = null) {
@@ -250,7 +276,7 @@
       const select = document.getElementById('cfg-child');
       if (select) {
         select.innerHTML = children.map(c =>
-          `<option value="${c.id}" ${c.id == selectedChildId ? 'selected' : ''}>${c.first_name} ${c.last_name}</option>`
+          `<option value="${c.id}" ${c.id == selectedChildId ? 'selected' : ''}>${escapeHtml(c.first_name)} ${escapeHtml(c.last_name)}</option>`
         ).join('');
 
         if (!selectedChildId && children.length > 0) {
@@ -259,64 +285,222 @@
       }
     } catch (err) {
       console.error('Failed to fetch children:', err);
+      showToast('Failed to fetch children');
     }
   }
 
-  // --- Diaper Logging (Fixed for DRF empty color field) ---
+  // --- Time Helper ---
+  function getTimeValue(timeInputId) {
+    const el = document.getElementById(timeInputId);
+    if (el && el.value) {
+      return new Date(el.value).toISOString();
+    }
+    return new Date().toISOString();
+  }
+
+  function resetTimeInput(timeInputId) {
+    const el = document.getElementById(timeInputId);
+    if (el) el.value = '';
+  }
+
+  // --- Diaper Logging ---
   async function logDiaper() {
     const childObj = await db.config.get('child');
     if (!childObj) return showToast('Configure Server & Child ID first!');
 
+    const btn = document.getElementById('btn-log-diaper');
     const wet = document.getElementById('diaper-wet').checked;
     const solid = document.getElementById('diaper-solid').checked;
-    const color = document.getElementById('diaper-color').value || ""; // Uses "" instead of null
+    const color = document.getElementById('diaper-color').value || "";
     const notes = document.getElementById('diaper-notes').value.trim();
+    const time = getTimeValue('diaper-time');
 
     if (!wet && !solid) {
       return showToast('Select Wet, Solid, or both.');
     }
 
-    const payload = {
-      child: childObj.value,
-      time: new Date().toISOString(),
-      wet: wet,
-      solid: solid,
-      color: color,
-      notes: notes
-    };
+    btn.disabled = true;
+    btn.textContent = 'Queuing...';
+    try {
+      const payload = {
+        child: childObj.value,
+        time: time,
+        wet: wet,
+        solid: solid,
+        color: color,
+        notes: notes
+      };
 
-    await db.outbox.add({
-      endpoint: 'changes',
-      payload: payload,
-      created_at: new Date().toISOString(),
-      status: 'pending'
-    });
+      await db.outbox.add({
+        endpoint: 'changes',
+        payload: payload,
+        created_at: new Date().toISOString(),
+        status: 'pending'
+      });
 
-    // Reset Form
-    document.getElementById('diaper-wet').checked = false;
-    document.getElementById('diaper-solid').checked = false;
-    document.getElementById('diaper-color').value = '';
-    document.getElementById('diaper-notes').value = '';
+      document.getElementById('diaper-wet').checked = false;
+      document.getElementById('diaper-solid').checked = false;
+      document.getElementById('diaper-color').value = '';
+      document.getElementById('diaper-notes').value = '';
+      resetTimeInput('diaper-time');
 
-    showToast('Diaper entry queued locally!');
-    await updateOutboxUI();
-    triggerSync();
+      showToast('Diaper entry queued locally!');
+      await updateOutboxUI();
+      triggerSync();
+    } catch (err) {
+      showToast('Failed to queue entry');
+      console.error('logDiaper error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Log Diaper';
+    }
+  }
+
+  // --- Feeding Logging ---
+  async function logFeeding() {
+    const childObj = await db.config.get('child');
+    if (!childObj) return showToast('Configure Server & Child ID first!');
+
+    const btn = document.getElementById('btn-log-feeding');
+    const type = document.getElementById('feed-type').value;
+    const method = document.getElementById('feed-method').value;
+    const amount = document.getElementById('feed-amount').value ? parseFloat(document.getElementById('feed-amount').value) : null;
+    const duration = parseInt(document.getElementById('feed-duration').value) || 0;
+    const notes = document.getElementById('feed-notes').value.trim();
+    const timeVal = getTimeValue('feed-time');
+
+    const startTime = new Date(timeVal);
+    const endTime = new Date(startTime.getTime() + duration * 60000);
+
+    btn.disabled = true;
+    btn.textContent = 'Queuing...';
+    try {
+      const payload = {
+        child: childObj.value,
+        start: startTime.toISOString(),
+        end: endTime.toISOString(),
+        type: type,
+        method: method,
+        amount: amount,
+        notes: notes
+      };
+
+      await db.outbox.add({
+        endpoint: 'feedings',
+        payload: payload,
+        created_at: new Date().toISOString(),
+        status: 'pending'
+      });
+
+      document.getElementById('feed-amount').value = '';
+      document.getElementById('feed-notes').value = '';
+      resetTimeInput('feed-time');
+
+      showToast('Feeding entry queued locally!');
+      await updateOutboxUI();
+      triggerSync();
+    } catch (err) {
+      showToast('Failed to queue entry');
+      console.error('logFeeding error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Log Feeding';
+    }
+  }
+
+  // --- Sleep Timer ---
+  function startSleepTimer() {
+    sleepStartTime = new Date();
+    document.getElementById('sleep-idle-state').classList.add('hidden');
+    document.getElementById('sleep-active-state').classList.remove('hidden');
+    document.getElementById('sleep-start-time').textContent = `Started at ${sleepStartTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    sleepTimerInterval = setInterval(updateSleepDisplay, 1000);
+    updateSleepDisplay();
+  }
+
+  function updateSleepDisplay() {
+    if (!sleepStartTime) return;
+    const elapsed = Math.floor((Date.now() - sleepStartTime.getTime()) / 1000);
+    const hours = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+    const mins = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+    const secs = String(elapsed % 60).padStart(2, '0');
+    document.getElementById('sleep-timer-display').textContent = `${hours}:${mins}:${secs}`;
+  }
+
+  async function stopSleepTimer() {
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval);
+      sleepTimerInterval = null;
+    }
+
+    const childObj = await db.config.get('child');
+    if (!childObj) {
+      resetSleepUI();
+      return showToast('Configure Server & Child ID first!');
+    }
+
+    const btn = document.getElementById('btn-stop-sleep');
+    const endTime = new Date();
+    const notes = document.getElementById('sleep-notes').value.trim();
+
+    btn.disabled = true;
+    btn.textContent = 'Queuing...';
+    try {
+      const payload = {
+        child: childObj.value,
+        start: sleepStartTime.toISOString(),
+        end: endTime.toISOString(),
+        notes: notes
+      };
+
+      await db.outbox.add({
+        endpoint: 'sleep',
+        payload: payload,
+        created_at: new Date().toISOString(),
+        status: 'pending'
+      });
+
+      document.getElementById('sleep-notes').value = '';
+      resetSleepUI();
+
+      showToast('Sleep entry queued locally!');
+      await updateOutboxUI();
+      triggerSync();
+    } catch (err) {
+      showToast('Failed to queue entry');
+      console.error('stopSleepTimer error:', err);
+      resetSleepUI();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Stop & Log Sleep';
+    }
+  }
+
+  function resetSleepUI() {
+    sleepStartTime = null;
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval);
+      sleepTimerInterval = null;
+    }
+    document.getElementById('sleep-idle-state').classList.remove('hidden');
+    document.getElementById('sleep-active-state').classList.add('hidden');
+    document.getElementById('sleep-timer-display').textContent = '00:00:00';
+    document.getElementById('sleep-start-time').textContent = 'Started at --:--';
   }
 
   // --- Outbox & Background Sync Logic ---
   async function triggerSync() {
-    // If browser supports Service Worker Background Sync, register the task
-  if ('serviceWorker' in navigator && 'SyncManager' in window) {
-    const reg = await navigator.serviceWorker.ready;
-    try {
-      await reg.sync.register('sync-babybuddy-outbox');
-    } catch (err) {
-      console.warn('Background sync registration failed, falling back to foreground sync:', err);
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      const reg = await navigator.serviceWorker.ready;
+      try {
+        await reg.sync.register('sync-babybuddy-outbox');
+      } catch (err) {
+        console.warn('Background sync registration failed, falling back to foreground sync:', err);
+      }
     }
-  }
 
-  // Regular foreground sync logic when app is open
-  if (!navigator.onLine) return;
+    if (!navigator.onLine) return;
 
     const serverObj = await db.config.get('server');
     const tokenObj = await db.config.get('token');
@@ -347,33 +531,62 @@
         }
       } catch (err) {
         console.error('Sync network error:', err);
-        break; // Stop loop if network cuts out
+        break;
       }
     }
 
     if (syncedCount > 0) {
       showToast(`Synced ${syncedCount} queued item(s)!`);
       await updateOutboxUI();
-      await fetchRecentHistory(); // Refresh recent history with newly posted logs
+      await fetchRecentHistory();
     }
   }
 
   async function updateOutboxUI() {
     const countEl = document.getElementById('outbox-count');
     const listEl = document.getElementById('queue-list');
+    const banner = document.getElementById('outbox-banner');
+    const queueCard = document.getElementById('queue-history-card');
+    const badgeEl = document.getElementById('queue-badge-count');
     const pending = await db.outbox.where('status').equals('pending').toArray();
 
     if (countEl) countEl.innerText = pending.length;
+    if (badgeEl) badgeEl.textContent = `${pending.length} pending`;
+
+    if (banner) {
+      if (pending.length > 0) {
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    if (queueCard) {
+      if (pending.length > 0) {
+        queueCard.classList.remove('hidden');
+      } else {
+        queueCard.classList.add('hidden');
+      }
+    }
+
     if (listEl) {
-      listEl.innerHTML = pending.length === 0
-        ? '<div class="text-xs text-gray-400 py-1">No pending items in queue.</div>'
-        : pending.map(i => `
+      if (pending.length === 0) {
+        listEl.innerHTML = '<div class="text-xs text-gray-400 py-1">No pending items in queue.</div>';
+      } else {
+        listEl.innerHTML = pending.map(i => `
           <div class="text-xs bg-amber-50 border border-amber-200 p-2 rounded flex justify-between items-center">
-            <span><strong>${i.endpoint.toUpperCase()}:</strong> ${new Date(i.created_at).toLocaleTimeString()}</span>
-            <span class="text-amber-600 font-medium">Pending</span>
+            <span><strong>${escapeHtml(i.endpoint.toUpperCase())}:</strong> ${new Date(i.created_at).toLocaleTimeString()}</span>
+            <button onclick="deleteOutboxItem(${i.id})" class="text-red-500 hover:text-red-700 font-medium ml-2 text-xs">✕</button>
           </div>
         `).join('');
+      }
     }
+  }
+
+  async function deleteOutboxItem(id) {
+    await db.outbox.delete(id);
+    await updateOutboxUI();
+    showToast('Entry removed from queue');
   }
 
   // --- Recent Server History Logic ---
@@ -384,7 +597,7 @@
       if (item.solid) types.push('Solid');
       const details = types.join(' + ') + (item.color ? ` (${item.color})` : '');
       return {
-        time: new Date(item.time),
+        time: item.time,
         icon: '🧷',
         title: 'Diaper Change',
         desc: details || 'Logged'
@@ -395,7 +608,7 @@
       const amt = item.amount ? `${item.amount} ml/oz` : '';
       const descParts = [item.type, item.method, amt].filter(Boolean).join(' • ');
       return {
-        time: new Date(item.end || item.start),
+        time: item.end || item.start,
         icon: '🍼',
         title: 'Feeding',
         desc: descParts || 'Feeding logged'
@@ -407,7 +620,7 @@
       const end = new Date(item.end);
       const durationMin = Math.max(1, Math.round((end - start) / 60000));
       return {
-        time: end,
+        time: item.end,
         icon: '🌙',
         title: 'Sleep Session',
         desc: `${durationMin} min duration`
@@ -416,9 +629,9 @@
   }
 
   function toggleSettings() {
-    const settingsCard = document.getElementById('settings-card') || document.getElementById('settings-panel');
-    if (settingsCard) {
-      settingsCard.classList.toggle('hidden');
+    const panel = document.getElementById('settings-panel');
+    if (panel) {
+      panel.classList.toggle('hidden');
     }
   }
 
@@ -441,9 +654,9 @@
 
     try {
       const [changesRes, feedingsRes, sleepRes] = await Promise.all([
-        fetch(`${serverObj.value}/api/changes/?child=${childObj.value}&limit=5`, { headers }),
-        fetch(`${serverObj.value}/api/feedings/?child=${childObj.value}&limit=5`, { headers }),
-        fetch(`${serverObj.value}/api/sleep/?child=${childObj.value}&limit=5`, { headers })
+        fetch(`${serverObj.value}/api/changes/?child=${childObj.value}&limit=10`, { headers }),
+        fetch(`${serverObj.value}/api/feedings/?child=${childObj.value}&limit=10`, { headers }),
+        fetch(`${serverObj.value}/api/sleep/?child=${childObj.value}&limit=10`, { headers })
       ]);
 
       const changesData = changesRes.ok ? await changesRes.json() : { results: [] };
@@ -493,10 +706,10 @@
       return `
         <div class="pt-2 first:pt-0 flex justify-between items-center text-sm">
           <div class="flex items-center gap-3 overflow-hidden pr-2">
-            <span class="text-xl leading-none">${item.icon}</span>
+            <span class="text-xl leading-none">${escapeHtml(item.icon)}</span>
             <div class="truncate">
-              <div class="font-semibold text-gray-800 leading-tight">${item.title}</div>
-              <div class="text-xs text-gray-500 truncate">${item.desc}</div>
+              <div class="font-semibold text-gray-800 leading-tight">${escapeHtml(item.title)}</div>
+              <div class="text-xs text-gray-500 truncate">${escapeHtml(item.desc)}</div>
             </div>
           </div>
           <div class="text-right text-xs text-gray-400 whitespace-nowrap">
@@ -519,15 +732,20 @@
 
   function updateNetworkStatus() {
     const statusEl = document.getElementById('net-badge');
+    const offlineBanner = document.getElementById('offline-banner');
     if (statusEl) {
       if (navigator.onLine) {
         statusEl.innerText = 'Online';
         statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800';
-        triggerSync();
-        fetchRecentHistory();
+        if (offlineBanner) offlineBanner.classList.add('hidden');
+        if (appLoaded) {
+          triggerSync();
+          fetchRecentHistory();
+        }
       } else {
         statusEl.innerText = 'Offline';
         statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-800';
+        if (offlineBanner) offlineBanner.classList.remove('hidden');
       }
     }
   }
@@ -541,25 +759,24 @@
     await updateOutboxUI();
     await renderServerHistory();
     updateNetworkStatus();
-    // Start foreground polling if visible and online
+    appLoaded = true;
     if (document.visibilityState === 'visible' && navigator.onLine) {
       startForegroundPolling();
     }
   });
-</script>
-<script>
+  </script>
+  <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       const reg = await navigator.serviceWorker.register('./sw.js');
       console.log('Service Worker registered:', reg.scope);
 
-      // Register periodic background sync (Chrome Android only, min ~15 min)
       if ('periodicSync' in reg) {
         try {
           const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
           if (status.state === 'granted') {
             await reg.periodicSync.register('poll-babybuddy-history', {
-              minInterval: 15 * 60 * 1000 // 15 minutes
+              minInterval: 15 * 60 * 1000
             });
             console.log('Periodic sync registered');
           }
@@ -568,7 +785,6 @@
         }
       }
 
-      // Listen for messages from service worker (e.g. history updated)
       navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data && event.data.type === 'HISTORY_UPDATED') {
           renderServerHistory();
@@ -583,7 +799,6 @@
   function startForegroundPolling() {
     stopForegroundPolling();
     if (!navigator.onLine) return;
-    // Poll every 60 seconds while app is open and online
     pollInterval = setInterval(async () => {
       if (!navigator.onLine) return;
       await fetchRecentHistory();
@@ -597,7 +812,6 @@
     }
   }
 
-  // Refresh immediately when user returns to the tab
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
       if (navigator.onLine) {
@@ -611,15 +825,13 @@
     }
   });
 
-  // Start polling when online, stop when offline
   window.addEventListener('online', () => {
     startForegroundPolling();
-    // Ask service worker to do a fresh poll immediately
     if (navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'FORCE_POLL' });
     }
   });
   window.addEventListener('offline', stopForegroundPolling);
-</script>
+  </script>
 </body>
 </html>
