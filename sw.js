@@ -1,6 +1,7 @@
 importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js');
 
-const CACHE_NAME = 'babybuddy-pwa-v3';
+const CACHE_NAME = 'babybuddy-pwa-v4';
+const API_CACHE = 'babybuddy-pwa-api-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -8,14 +9,12 @@ const ASSETS_TO_CACHE = [
   'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js'
 ];
 
-// Initialize Dexie inside Service Worker
 const db = new Dexie('BabyBuddyPWA');
 db.version(1).stores({
   config: 'key',
   outbox: '++id, status'
 });
 
-// Install Event: Safely cache assets without crashing on CDN CORS issues
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
@@ -34,17 +33,36 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.map((key) => key !== CACHE_NAME && caches.delete(key)))
+      Promise.all(keys.filter(k => k !== CACHE_NAME && k !== API_CACHE).map(k => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
-// Fetch handler for offline app shell
+// Fetch handler: cache API GET responses for offline, pass POSTs through
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname.includes('/api/')) return; // Pass BabyBuddy API through
 
+  // For API GET requests: network-first with cache fallback
+  if (url.pathname.includes('/api/') && event.request.method === 'GET') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(API_CACHE).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // For API POSTs (outbox sync): pass through
+  if (url.pathname.includes('/api/')) return;
+
+  // App shell: cache-first with network update
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request)
@@ -61,12 +79,67 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Background Sync Handler for Queued Outbox Items
+// --- Background Sync (outbox) ---
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-babybuddy-outbox') {
     event.waitUntil(processBackgroundSync());
   }
 });
+
+// --- Periodic Background Sync (Chrome Android) ---
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'poll-babybuddy-history') {
+    event.waitUntil(pollHistory());
+  }
+});
+
+async function pollHistory() {
+  const serverObj = await db.config.get('server');
+  const tokenObj = await db.config.get('token');
+  const childObj = await db.config.get('child');
+  if (!serverObj || !tokenObj || !childObj) return;
+
+  const headers = {
+    'Authorization': `Token ${tokenObj.value}`,
+    'Content-Type': 'application/json'
+  };
+  const base = serverObj.value;
+  const childId = childObj.value;
+
+  try {
+    const [changesRes, feedingsRes, sleepRes] = await Promise.all([
+      fetch(`${base}/api/changes/?child=${childId}&limit=10`, { headers }),
+      fetch(`${base}/api/feedings/?child=${childId}&limit=10`, { headers }),
+      fetch(`${base}/api/sleep/?child=${childId}&limit=10`, { headers })
+    ]);
+
+    const store = await caches.open(API_CACHE);
+
+    if (changesRes.ok) {
+      store.put(`${base}/api/changes/?child=${childId}&limit=10`, changesRes.clone());
+    }
+    if (feedingsRes.ok) {
+      store.put(`${base}/api/feedings/?child=${childId}&limit=10`, feedingsRes.clone());
+    }
+    if (sleepRes.ok) {
+      store.put(`${base}/api/sleep/?child=${childId}&limit=10`, sleepRes.clone());
+    }
+
+    // Also cache the children endpoint
+    const childrenRes = await fetch(`${base}/api/children/`, { headers });
+    if (childrenRes.ok) {
+      store.put(`${base}/api/children/`, childrenRes.clone());
+    }
+
+    // Notify open clients that fresh data is available
+    const clients = await self.clients.matchAll();
+    for (const client of clients) {
+      client.postMessage({ type: 'HISTORY_UPDATED' });
+    }
+  } catch (err) {
+    console.warn('Periodic history poll failed:', err);
+  }
+}
 
 async function processBackgroundSync() {
   const serverObj = await db.config.get('server');
@@ -94,4 +167,14 @@ async function processBackgroundSync() {
       break;
     }
   }
+
+  // After syncing outbox, also refresh history cache
+  await pollHistory();
 }
+
+// Listen for messages from the main thread
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'FORCE_POLL') {
+    event.waitUntil(pollHistory());
+  }
+});
