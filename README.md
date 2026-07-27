@@ -10,3 +10,7 @@ For the PWA to work with the cors on babybuddy we need to add this origin to the
 environment:
   - CORS_ALLOWED_ORIGINS=https://jorblad.github.io
 ```
+
+### Limitations
+
+Babybuddy history is only updated when the pwa is open and can reach babybuddy.

@@ -1,0 +1,90 @@
+importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js');
+
+const CACHE_NAME = 'babybuddy-pwa-v2';
+const ASSETS_TO_CACHE = [
+  './',
+  './index.html',
+  './manifest.json',
+  'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js',
+  'https://cdn.tailwindcss.com'
+];
+
+// Initialize Dexie inside Service Worker
+const db = new Dexie('BabyBuddyPWA');
+db.version(1).stores({
+  config: 'key',
+  outbox: '++id, status'
+});
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((key) => key !== CACHE_NAME && caches.delete(key)))
+    )
+  );
+  self.clients.claim();
+});
+
+// Fetch handler for offline app shell
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (url.pathname.includes('/api/')) return; // Skip API calls from static caching
+
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => {});
+      return cachedResponse || fetchPromise;
+    })
+  );
+});
+
+// --- BACKGROUND SYNC EVENT ---
+// Triggers automatically when network returns, even if the app is closed
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-babybuddy-outbox') {
+    event.waitUntil(processBackgroundSync());
+  }
+});
+
+async function processBackgroundSync() {
+  const serverObj = await db.config.get('server');
+  const tokenObj = await db.config.get('token');
+  if (!serverObj || !tokenObj) return;
+
+  const pendingItems = await db.outbox.where('status').equals('pending').toArray();
+
+  for (const item of pendingItems) {
+    try {
+      const res = await fetch(`${serverObj.value}/api/${item.endpoint}/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${tokenObj.value}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(item.payload)
+      });
+
+      if (res.ok) {
+        await db.outbox.delete(item.id);
+      }
+    } catch (err) {
+      console.error('Background sync failed for item:', item.id, err);
+      break; // Stop loop if connection cuts out again
+    }
+  }
+}
