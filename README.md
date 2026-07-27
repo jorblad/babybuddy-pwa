@@ -13,4 +13,5 @@ environment:
 
 ### Limitations
 
-Babybuddy history is only updated when the pwa is open and can reach babybuddy.
+Babybuddy history is trying to keep up to date but that is severly limited. On Android it only works when installed from Chrome and Android can decide to ratelimit or stop updating anytime. On iOS it does not poll in the background at all.
+When the app is in the foreground however it should update properly.

@@ -299,8 +299,8 @@
   }
 
   // --- Tag System ---
-  let cachedTags = [];
-  let selectedTags = [];
+  let cachedTags = [];      // full tag objects [{name, last_used}, ...]
+  let selectedTags = [];    // currently selected tag names
 
   async function fetchTags() {
     const serverObj = await db.config.get('server');
@@ -313,12 +313,15 @@
     }
 
     try {
-      const res = await fetch(`${serverObj.value}/api/tags/`, {
+      const res = await fetch(`${serverObj.value}/api/tags/?ordering=-last_used`, {
         headers: { 'Authorization': `Token ${tokenObj.value}` }
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      cachedTags = (data.results || data).map(t => t.name);
+      cachedTags = (data.results || data).map(t => ({
+        name: t.name,
+        last_used: t.last_used || null
+      }));
       await db.config.put({ key: 'cached_tags', value: cachedTags });
     } catch (err) {
       console.warn('Failed to fetch tags:', err);
@@ -331,16 +334,19 @@
   function renderTagPills() {
     const container = document.getElementById('diaper-tag-pills');
     if (!container) return;
-    if (cachedTags.length === 0) {
-      container.innerHTML = '';
+
+    const recent = cachedTags.slice(0, 5);
+    if (recent.length === 0) {
+      container.innerHTML = '<span class="text-xs text-gray-400">No tags yet</span>';
       return;
     }
-    container.innerHTML = cachedTags.map(t => {
-      const isSelected = selectedTags.some(s => s.toLowerCase() === t.toLowerCase());
+
+    container.innerHTML = recent.map(t => {
+      const isSelected = selectedTags.some(s => s.toLowerCase() === t.name.toLowerCase());
       const cls = isSelected
         ? 'bg-blue-100 text-blue-800 border-blue-300'
         : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-blue-50 hover:text-blue-600';
-      return `<button type="button" data-tag="${escapeHtml(t)}" class="tag-pill px-2 py-0.5 text-xs rounded-full border font-medium ${cls}">${escapeHtml(t)}</button>`;
+      return `<button type="button" data-tag="${escapeHtml(t.name)}" class="tag-pill px-2 py-0.5 text-xs rounded-full border font-medium ${cls}">${escapeHtml(t.name)}</button>`;
     }).join('');
 
     container.querySelectorAll('.tag-pill').forEach(btn => {
@@ -412,7 +418,7 @@
 
       const used = new Set(selectedTags.map(s => s.toLowerCase()));
       const matches = cachedTags.filter(t =>
-        t.toLowerCase().includes(current) && !used.has(t.toLowerCase())
+        t.name.toLowerCase().includes(current) && !used.has(t.name.toLowerCase())
       );
 
       if (matches.length === 0) {
@@ -421,7 +427,7 @@
       }
 
       suggestionsEl.innerHTML = matches.slice(0, 5).map(t =>
-        `<div class="px-2 py-1 hover:bg-blue-50 cursor-pointer text-gray-700" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</div>`
+        `<div class="px-2 py-1 hover:bg-blue-50 cursor-pointer text-gray-700" data-tag="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>`
       ).join('');
       suggestionsEl.classList.remove('hidden');
 
