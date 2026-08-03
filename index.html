@@ -120,7 +120,7 @@
         <div id="diaper-tag-suggestions" class="hidden mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs max-h-24 overflow-y-auto shadow-sm"></div>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Time (optional, leave blank for now)</label>
+        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Time (optional — leave blank to use current time)</label>
         <input aria-label="Diaper Time" type="datetime-local" id="diaper-time" class="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 min-h-[44px]">
       </div>
       <button onclick="logDiaper()" id="btn-log-diaper" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded shadow-sm text-sm min-h-[48px]">Log Diaper</button>
@@ -165,7 +165,7 @@
       </div>
       <input type="text" id="feed-notes" placeholder="Notes (optional)" class="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 min-h-[44px]">
       <div>
-        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Time (optional, leave blank for now)</label>
+        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Start Time (optional — leave blank to use current time)</label>
         <input aria-label="Feed time" type="datetime-local" id="feed-time" class="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 min-h-[44px]">
       </div>
       <button onclick="logFeeding()" id="btn-log-feeding" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded shadow-sm text-sm min-h-[48px]">Log Feeding</button>
@@ -183,6 +183,28 @@
         <button onclick="startSleepTimer()" id="btn-start-sleep" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded shadow-sm text-sm flex justify-center items-center gap-2 min-h-[48px]">
           <span>▶️</span> Start Sleep Timer
         </button>
+
+        <!-- Log Past Sleep (collapsible) -->
+        <div class="border-t border-gray-100 dark:border-gray-700 pt-3">
+          <button type="button" onclick="togglePastSleepForm()" class="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium flex items-center gap-1 min-h-[36px]">
+            <span id="past-sleep-toggle-icon">▶</span> Log Past Sleep
+          </button>
+          <div id="past-sleep-form" class="hidden mt-3 space-y-3">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Start Time</label>
+                <input type="datetime-local" id="sleep-manual-start" aria-label="Sleep start time" class="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 min-h-[44px]">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">End Time</label>
+                <input type="datetime-local" id="sleep-manual-end" aria-label="Sleep end time" class="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 min-h-[44px]">
+              </div>
+            </div>
+            <button type="button" onclick="logManualSleep()" id="btn-log-past-sleep" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded shadow-sm text-sm flex justify-center items-center gap-2 min-h-[48px]">
+              📝 Log Past Sleep
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Active State: Running Stopwatch -->
@@ -724,6 +746,71 @@
     document.getElementById('sleep-active-state').classList.add('hidden');
     document.getElementById('sleep-timer-display').textContent = '00:00:00';
     document.getElementById('sleep-start-time').textContent = 'Started at --:--';
+  }
+
+  // --- Past Sleep Toggle ---
+  function togglePastSleepForm() {
+    const form = document.getElementById('past-sleep-form');
+    const icon = document.getElementById('past-sleep-toggle-icon');
+    const isHidden = form.classList.contains('hidden');
+    form.classList.toggle('hidden');
+    if (icon) icon.textContent = isHidden ? '▼' : '▶';
+  }
+
+  // --- Log Manual (Past) Sleep ---
+  async function logManualSleep() {
+    const childObj = await db.config.get('child');
+    if (!childObj) return showToast('Configure Server & Child ID first!');
+
+    const startInput = document.getElementById('sleep-manual-start');
+    const endInput = document.getElementById('sleep-manual-end');
+    const notes = document.getElementById('sleep-notes').value.trim();
+
+    if (!startInput.value || !endInput.value) {
+      return showToast('Please enter both start and end times.');
+    }
+
+    const startTime = new Date(startInput.value);
+    const endTime = new Date(endInput.value);
+
+    if (endTime <= startTime) {
+      return showToast('End time must be after start time.');
+    }
+
+    const btn = document.getElementById('btn-log-past-sleep');
+    btn.disabled = true;
+    btn.textContent = 'Queuing...';
+    try {
+      const payload = {
+        child: childObj.value,
+        start: startTime.toISOString(),
+        end: endTime.toISOString(),
+        notes: notes
+      };
+
+      await db.outbox.add({
+        endpoint: 'sleep',
+        payload: payload,
+        created_at: new Date().toISOString(),
+        status: 'pending'
+      });
+
+      startInput.value = '';
+      endInput.value = '';
+      document.getElementById('sleep-notes').value = '';
+      document.getElementById('past-sleep-form').classList.add('hidden');
+      document.getElementById('past-sleep-toggle-icon').textContent = '▶';
+
+      showToast('Sleep entry queued locally!');
+      await updateOutboxUI();
+      triggerSync();
+    } catch (err) {
+      showToast('Failed to queue entry');
+      console.error('logManualSleep error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📝 Log Past Sleep';
+    }
   }
 
   // --- Outbox & Background Sync Logic ---
