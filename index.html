@@ -752,6 +752,7 @@
   function togglePastSleepForm() {
     const form = document.getElementById('past-sleep-form');
     const icon = document.getElementById('past-sleep-toggle-icon');
+    if (!form) return;
     const isHidden = form.classList.contains('hidden');
     form.classList.toggle('hidden');
     if (icon) icon.textContent = isHidden ? '▼' : '▶';
