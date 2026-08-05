@@ -50,11 +50,18 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response && response.status === 200) {
             const clone = response.clone();
-            caches.open(API_CACHE).then(cache => cache.put(event.request, clone));
+            event.waitUntil(
+              caches.open(API_CACHE).then(cache => cache.put(event.request, clone)).catch(() => {})
+            );
           }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => {
+          if (event.request.cache === 'no-store') {
+            throw new Error('Network request failed');
+          }
+          return caches.match(event.request);
+        })
     );
     return;
   }
@@ -72,7 +79,9 @@ self.addEventListener('fetch', (event) => {
         clearTimeout(timeoutId);
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
+          event.waitUntil(
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {})
+          );
         }
         return networkResponse;
       } catch {
