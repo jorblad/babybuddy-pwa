@@ -64,15 +64,24 @@ self.addEventListener('fetch', (event) => {
 
   // App shell: network-first with cache fallback
   event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
+    (async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      try {
+        const networkResponse = await fetch(event.request, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return networkResponse;
-      })
-      .catch(() => caches.match(event.request))
+      } catch {
+        clearTimeout(timeoutId);
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+      }
+    })()
   );
 });
 
