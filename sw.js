@@ -1,6 +1,6 @@
 importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js');
 
-const CACHE_NAME = 'babybuddy-pwa-v4';
+const CACHE_NAME = 'babybuddy-pwa-v5';
 const API_CACHE = 'babybuddy-pwa-api-v1';
 const ASSETS_TO_CACHE = [
   './',
@@ -62,20 +62,17 @@ self.addEventListener('fetch', (event) => {
   // For API POSTs (outbox sync): pass through
   if (url.pathname.includes('/api/')) return;
 
-  // App shell: cache-first with network update
+  // App shell: network-first with cache fallback
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => {});
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
