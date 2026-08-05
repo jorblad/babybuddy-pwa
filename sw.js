@@ -56,11 +56,13 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => {
+        .catch(async () => {
           if (event.request.cache === 'no-store') {
             throw new Error('Network request failed');
           }
-          return caches.match(event.request);
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
         })
     );
     return;
@@ -75,7 +77,9 @@ self.addEventListener('fetch', (event) => {
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
+          event.waitUntil(
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {})
+          );
         }
         return networkResponse;
       })
