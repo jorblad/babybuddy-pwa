@@ -921,12 +921,45 @@
       if (pending.length === 0) {
         listEl.innerHTML = '<div class="text-xs text-gray-400 dark:text-gray-500 py-1">No pending items in queue.</div>';
       } else {
-        listEl.innerHTML = pending.map(i => `
-          <div class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-2 rounded flex justify-between items-center">
-            <span class="text-gray-800 dark:text-gray-200"><strong>${escapeHtml(i.endpoint.toUpperCase())}:</strong> ${new Date(i.created_at).toLocaleTimeString()}</span>
-            <button onclick="deleteOutboxItem(${i.id})" class="text-red-500 hover:text-red-700 font-medium ml-2 text-xs">✕</button>
+        listEl.innerHTML = pending.map(i => {
+          const p = i.payload || {};
+          let detail = '';
+          if (i.endpoint === 'sleep' && p.start && p.end) {
+            const start = new Date(p.start);
+            const end = new Date(p.end);
+            const durationMin = Math.max(1, Math.round((end - start) / 60000));
+            detail = `${formatTime(start)} – ${formatTime(end)} (${formatDuration(durationMin)})`;
+            if (p.notes) detail += ` | ${p.notes}`;
+          } else if (i.endpoint === 'feedings' && p.start) {
+            const start = new Date(p.start);
+            const parts = [p.type, p.method, p.amount ? `${p.amount} ml/oz` : ''].filter(Boolean).join(' • ');
+            const end = p.end ? new Date(p.end) : null;
+            const durationMin = end ? Math.round((end - start) / 60000) : null;
+            detail = parts || '';
+            const timeStr = end
+              ? `${formatTime(start)} – ${formatTime(end)}${durationMin !== null ? ` (${formatDuration(durationMin)})` : ''}`
+              : formatTime(start);
+            detail = [detail, timeStr].filter(Boolean).join(' | ');
+            if (p.notes) detail += ` | ${p.notes}`;
+          } else if (i.endpoint === 'changes') {
+            const types = [];
+            if (p.wet) types.push('Wet');
+            if (p.solid) types.push('Solid');
+            detail = types.join(' + ') + (p.color ? ` (${p.color})` : '');
+            if (p.notes) detail = detail ? `${detail} — ${p.notes}` : p.notes;
+          }
+          const dateStr = formatTime(new Date(i.created_at));
+          return `
+          <div class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-2 rounded flex justify-between items-start gap-2">
+            <div>
+              <span class="font-semibold text-gray-800 dark:text-gray-200">${escapeHtml(i.endpoint.toUpperCase())}</span>
+              <span class="text-gray-500 dark:text-gray-400 ml-1">${dateStr}</span>
+              ${detail ? `<div class="text-gray-600 dark:text-gray-300 mt-0.5">${escapeHtml(detail)}</div>` : ''}
+            </div>
+            <button onclick="deleteOutboxItem(${i.id})" class="text-red-500 hover:text-red-700 font-medium text-xs shrink-0">✕</button>
           </div>
-        `).join('');
+        `;
+        }).join('');
       }
     }
   }
@@ -938,12 +971,27 @@
   }
 
   // --- Recent Server History Logic ---
+  function formatDuration(totalMinutes) {
+    if (totalMinutes == null || isNaN(totalMinutes) || totalMinutes < 0) return '';
+    const mins = Math.round(totalMinutes);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }
+
+  function formatTime(dateObj) {
+    return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
   function normalizeServerItem(item, endpoint) {
     if (endpoint === 'changes') {
       const types = [];
       if (item.wet) types.push('Wet');
       if (item.solid) types.push('Solid');
       let details = types.join(' + ') + (item.color ? ` (${item.color})` : '');
+      if (item.notes) details = details ? `${details} — ${item.notes}` : item.notes;
       if (item.tags && item.tags.length > 0) {
         const tagNames = item.tags.map(t => typeof t === 'string' ? t : t.name).filter(Boolean);
         if (tagNames.length > 0) details += ` [${tagNames.join(', ')}]`;
@@ -959,11 +1007,20 @@
     if (endpoint === 'feedings') {
       const amt = item.amount ? `${item.amount} ml/oz` : '';
       const descParts = [item.type, item.method, amt].filter(Boolean).join(' • ');
+      const timeRange = item.start && item.end
+        ? (() => {
+            const start = new Date(item.start);
+            const end = new Date(item.end);
+            const durationMin = Math.round((end - start) / 60000);
+            return `${formatTime(start)} – ${formatTime(end)} (${formatDuration(durationMin)})`;
+          })()
+        : '';
+      const desc = [descParts, timeRange, item.notes].filter(Boolean).join(' | ');
       return {
         time: item.end || item.start,
         icon: '🍼',
         title: 'Feeding',
-        desc: descParts || 'Feeding logged'
+        desc: desc || 'Feeding logged'
       };
     }
 
@@ -971,11 +1028,13 @@
       const start = new Date(item.start);
       const end = new Date(item.end);
       const durationMin = Math.max(1, Math.round((end - start) / 60000));
+      const timeRange = `${formatTime(start)} – ${formatTime(end)} (${formatDuration(durationMin)})`;
+      const desc = item.notes ? `${timeRange} | ${item.notes}` : timeRange;
       return {
         time: item.end,
         icon: '🌙',
         title: 'Sleep Session',
-        desc: `${durationMin} min duration`
+        desc
       };
     }
   }
@@ -1056,15 +1115,15 @@
       const dateStr = itemDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
       return `
-        <div class="pt-2 first:pt-0 flex justify-between items-center text-sm">
-          <div class="flex items-center gap-3 overflow-hidden pr-2">
-            <span class="text-xl leading-none">${escapeHtml(item.icon)}</span>
-            <div class="truncate">
+        <div class="pt-2 first:pt-0 flex justify-between items-start text-sm">
+          <div class="flex items-start gap-3 overflow-hidden pr-2">
+            <span class="text-xl leading-none mt-0.5">${escapeHtml(item.icon)}</span>
+            <div class="overflow-hidden">
               <div class="font-semibold text-gray-800 dark:text-gray-100 leading-tight">${escapeHtml(item.title)}</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(item.desc)}</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 break-words">${escapeHtml(item.desc)}</div>
             </div>
           </div>
-          <div class="text-right text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+          <div class="text-right text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap shrink-0">
             <div>${timeStr}</div>
             <div class="text-[10px]">${dateStr}</div>
           </div>
