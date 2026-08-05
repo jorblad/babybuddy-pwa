@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
         clearTimeout(timeoutId);
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
         }
         return networkResponse;
       } catch {
