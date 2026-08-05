@@ -62,7 +62,7 @@ self.addEventListener('fetch', (event) => {
           }
           const cached = await caches.match(event.request);
           if (cached) return cached;
-          return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+          throw new Error('No cached response available');
         })
     );
     return;
