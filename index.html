@@ -1059,23 +1059,59 @@
     setTimeout(() => toast.classList.add('hidden'), 3000);
   }
 
-  function updateNetworkStatus() {
+  async function checkBabyBuddyReachable() {
+    const serverObj = await db.config.get('server');
+    const tokenObj = await db.config.get('token');
+    if (!serverObj || !tokenObj) return { reachable: false, reason: 'Configure server/token' };
+
+    try {
+      const res = await fetch(`${serverObj.value}/api/children/?limit=1`, {
+        headers: {
+          Authorization: `Token ${tokenObj.value}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (res.ok) return { reachable: true, reason: 'Connected' };
+      if (res.status === 401 || res.status === 403) return { reachable: false, reason: 'Auth error' };
+      return { reachable: false, reason: `Server error (${res.status})` };
+    } catch (e) {
+      return { reachable: false, reason: 'Baby Buddy unreachable' };
+    }
+  }
+
+  async function updateNetworkStatus() {
     const statusEl = document.getElementById('net-badge');
     const offlineBanner = document.getElementById('offline-banner');
-    if (statusEl) {
-      if (navigator.onLine) {
-        statusEl.innerText = 'Online';
-        statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800';
-        if (offlineBanner) offlineBanner.classList.add('hidden');
-        if (appLoaded) {
-          triggerSync();
-          fetchRecentHistory();
-        }
-      } else {
-        statusEl.innerText = 'Offline';
-        statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-800';
-        if (offlineBanner) offlineBanner.classList.remove('hidden');
+    if (!statusEl) return;
+
+    if (!navigator.onLine) {
+      statusEl.innerText = 'Offline';
+      statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-800';
+      if (offlineBanner) {
+        offlineBanner.innerText = 'You are offline — entries will be queued and synced when connectivity returns.';
+        offlineBanner.classList.remove('hidden');
       }
+      return;
+    }
+
+    const { reachable, reason } = await checkBabyBuddyReachable();
+    if (reachable) {
+      statusEl.innerText = 'Online';
+      statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800';
+      if (offlineBanner) offlineBanner.classList.add('hidden');
+      if (appLoaded) {
+        triggerSync();
+        fetchRecentHistory();
+      }
+      return;
+    }
+
+    statusEl.innerText = 'Offline';
+    statusEl.className = 'px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-800';
+    if (offlineBanner) {
+      offlineBanner.innerText = `Online, but ${reason}. Entries will be queued and synced when connectivity returns.`;
+      offlineBanner.classList.remove('hidden');
     }
   }
 
