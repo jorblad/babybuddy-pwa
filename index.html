@@ -923,9 +923,9 @@
             if (p.wet) types.push('Wet');
             if (p.solid) types.push('Solid');
             detail = types.join(' + ') + (p.color ? ` (${p.color})` : '');
-            if (p.notes) detail += ` — ${p.notes}`;
+            if (p.notes) detail = detail ? `${detail} — ${p.notes}` : p.notes;
           }
-          const dateStr = new Date(i.created_at).toLocaleTimeString();
+          const dateStr = formatTime(new Date(i.created_at));
           return `
           <div class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-2 rounded flex justify-between items-start gap-2">
             <div>
@@ -949,8 +949,10 @@
 
   // --- Recent Server History Logic ---
   function formatDuration(totalMinutes) {
-    const h = Math.floor(totalMinutes / 60);
-    const m = totalMinutes % 60;
+    if (totalMinutes == null || isNaN(totalMinutes) || totalMinutes < 0) return '';
+    const mins = Math.round(totalMinutes);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
     if (h > 0 && m > 0) return `${h}h ${m}m`;
     if (h > 0) return `${h}h`;
     return `${m}m`;
@@ -966,7 +968,7 @@
       if (item.wet) types.push('Wet');
       if (item.solid) types.push('Solid');
       let details = types.join(' + ') + (item.color ? ` (${item.color})` : '');
-      if (item.notes) details += ` — ${item.notes}`;
+      if (item.notes) details = details ? `${details} — ${item.notes}` : item.notes;
       if (item.tags && item.tags.length > 0) {
         const tagNames = item.tags.map(t => typeof t === 'string' ? t : t.name).filter(Boolean);
         if (tagNames.length > 0) details += ` [${tagNames.join(', ')}]`;
