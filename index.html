@@ -1146,12 +1146,16 @@
     const tokenObj = await db.config.get('token');
     if (!serverObj || !tokenObj) return { reachable: false, reason: 'Configure server/token' };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
       const res = await fetch(`${serverObj.value}/api/children/?limit=1`, {
         headers: {
           Authorization: `Token ${tokenObj.value}`,
           'Content-Type': 'application/json'
-        }
+        },
+        cache: 'no-store',
+        signal: controller.signal
       });
 
       if (res.ok) return { reachable: true, reason: 'Connected' };
@@ -1159,6 +1163,8 @@
       return { reachable: false, reason: `Server error (${res.status})` };
     } catch (e) {
       return { reachable: false, reason: 'Baby Buddy unreachable' };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

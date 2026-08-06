@@ -1,6 +1,6 @@
 importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js');
 
-const CACHE_NAME = 'babybuddy-pwa-v4';
+const CACHE_NAME = 'babybuddy-pwa-v5';
 const API_CACHE = 'babybuddy-pwa-api-v1';
 const ASSETS_TO_CACHE = [
   './',
@@ -50,11 +50,20 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response && response.status === 200) {
             const clone = response.clone();
-            caches.open(API_CACHE).then(cache => cache.put(event.request, clone));
+            event.waitUntil(
+              caches.open(API_CACHE).then(cache => cache.put(event.request, clone)).catch(() => {})
+            );
           }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(async () => {
+          if (event.request.cache === 'no-store') {
+            throw new Error('Network request failed');
+          }
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          throw new Error('No cached response available');
+        })
     );
     return;
   }
@@ -62,20 +71,23 @@ self.addEventListener('fetch', (event) => {
   // For API POSTs (outbox sync): pass through
   if (url.pathname.includes('/api/')) return;
 
-  // App shell: cache-first with network update
+  // App shell: network-first with cache fallback
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => {});
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          event.waitUntil(
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {})
+          );
+        }
+        return networkResponse;
+      })
+      .catch(() =>
+        caches.match(event.request).then((cached) =>
+          cached || new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
+        )
+      )
   );
 });
 
