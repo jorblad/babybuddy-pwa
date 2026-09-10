@@ -269,7 +269,7 @@
     const isDark = document.documentElement.classList.contains('dark');
     const newDark = !isDark;
     applyTheme(newDark);
-    await db.config.put({ key: 'theme', value: newDark ? 'dark' : 'light' });
+    await mirrorConfig('theme', newDark ? 'dark' : 'light');
   }
 
   // --- Dexie Database Initialization ---
@@ -283,8 +283,76 @@
   let sleepTimerInterval = null;
   let sleepStartTime = null;
 
+  // --- Config Redundancy (guard against IndexedDB eviction) ---
+  // IndexedDB (Dexie) is the primary store, but it can be purged by the
+  // browser (e.g. iOS Safari ITP) while the service-worker app shell survives.
+  // We mirror essential config into localStorage and the Cache API as well so a
+  // lost Dexie record can be recovered on next launch.
+  const LS_PREFIX = 'bbcfg:';
+  const CONFIG_BUNDLE_CACHE = 'babybuddy-pwa-config';
+  const CONFIG_KEYS = ['server', 'token', 'child', 'theme'];
+
+  function lsGet(key) {
+    try { return localStorage.getItem(LS_PREFIX + key); } catch (e) { return null; }
+  }
+  function lsSet(key, value) {
+    try { localStorage.setItem(LS_PREFIX + key, typeof value === 'string' ? value : JSON.stringify(value)); } catch (e) {}
+  }
+  function lsDel(key) {
+    try { localStorage.removeItem(LS_PREFIX + key); } catch (e) {}
+  }
+
+  async function persistConfigBundle() {
+    try {
+      const bundle = {};
+      for (const k of CONFIG_KEYS) {
+        const rec = await db.config.get(k);
+        if (rec) bundle[k] = rec.value;
+      }
+      if (Object.keys(bundle).length === 0) return;
+      const cache = await caches.open(CONFIG_BUNDLE_CACHE);
+      await cache.put('config-bundle', new Response(JSON.stringify(bundle), { headers: { 'Content-Type': 'application/json' } }));
+    } catch (e) {
+      console.warn('persistConfigBundle failed:', e);
+    }
+  }
+
+  async function getFallbackConfigValue(key) {
+    const ls = lsGet(key);
+    if (ls !== null) return ls;
+    try {
+      const cache = await caches.open(CONFIG_BUNDLE_CACHE);
+      const res = await cache.match('config-bundle');
+      if (res) {
+        const bundle = await res.json();
+        if (bundle && bundle[key] != null) return bundle[key];
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function mirrorConfig(key, value) {
+    await db.config.put({ key, value });
+    lsSet(key, value);
+    await persistConfigBundle();
+  }
+
+  async function hydrateConfigFromFallbacks() {
+    for (const key of CONFIG_KEYS) {
+      const existing = await db.config.get(key);
+      if (existing) continue;
+      const v = await getFallbackConfigValue(key);
+      if (v !== null) {
+        await db.config.put({ key, value: v });
+        console.info(`Recovered config "${key}" from fallback storage.`);
+      }
+    }
+  }
+
   // --- Core Configuration Functions ---
   async function loadConfig() {
+    await hydrateConfigFromFallbacks();
+
     const server = await db.config.get('server');
     const token = await db.config.get('token');
     const child = await db.config.get('child');
@@ -311,14 +379,34 @@
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
-      await db.config.put({ key: 'server', value: serverUrl });
-      await db.config.put({ key: 'token', value: apiToken });
+      await mirrorConfig('server', serverUrl);
+      await mirrorConfig('token', apiToken);
       if (selectedChild) {
-        await db.config.put({ key: 'child', value: selectedChild });
+        await mirrorConfig('child', selectedChild);
       }
 
       showToast('Settings saved!');
       await fetchChildren(serverUrl, apiToken, selectedChild);
+
+      const childObj = await db.config.get('child');
+      if (childObj && childObj.value) {
+        const pending = await db.outbox.where('status').equals('pending').toArray();
+        let backfilled = 0;
+        for (const item of pending) {
+          if (item.needs_child && !item.payload.child) {
+            item.payload.child = childObj.value;
+            delete item.needs_child;
+            await db.outbox.put(item);
+            backfilled++;
+          }
+        }
+        if (backfilled > 0) {
+          showToast(`Saved ${backfilled} queued draft(s) — syncing now.`);
+          await updateOutboxUI();
+          triggerSync();
+        }
+      }
+
       await fetchRecentHistory();
     } catch (err) {
       showToast('Failed to save settings');
@@ -355,7 +443,7 @@
         ).join('');
 
         if (!selectedChildId && children.length > 0) {
-          await db.config.put({ key: 'child', value: children[0].id });
+          await mirrorConfig('child', children[0].id);
         }
       }
     } catch (err) {
@@ -565,9 +653,7 @@
   // --- Diaper Logging ---
   async function logDiaper() {
     const childObj = await db.config.get('child');
-    if (!childObj) return showToast('Configure Server & Child ID first!');
 
-    const btn = document.getElementById('btn-log-diaper');
     const wet = document.getElementById('diaper-wet').checked;
     const solid = document.getElementById('diaper-solid').checked;
     const color = document.getElementById('diaper-color').value || "";
@@ -579,19 +665,26 @@
       return showToast('Select Wet, Solid, or both.');
     }
 
+    const payload = {
+      child: childObj ? childObj.value : null,
+      time: time,
+      wet: wet,
+      solid: solid,
+      color: color,
+      notes: notes,
+      tags: tags
+    };
+
+    if (!childObj) {
+      await queueEntryDraft('changes', payload, 'Diaper saved as a draft — it will sync once a child is configured.');
+      resetDiaperForm();
+      return;
+    }
+
+    const btn = document.getElementById('btn-log-diaper');
     btn.disabled = true;
     btn.textContent = 'Queuing...';
     try {
-      const payload = {
-        child: childObj.value,
-        time: time,
-        wet: wet,
-        solid: solid,
-        color: color,
-        notes: notes,
-        tags: tags
-      };
-
       await db.outbox.add({
         endpoint: 'changes',
         payload: payload,
@@ -599,12 +692,7 @@
         status: 'pending'
       });
 
-      document.getElementById('diaper-wet').checked = false;
-      document.getElementById('diaper-solid').checked = false;
-      document.getElementById('diaper-color').value = '';
-      document.getElementById('diaper-notes').value = '';
-      clearTags();
-      resetTimeInput('diaper-time');
+      resetDiaperForm();
 
       showToast('Diaper entry queued locally!');
       await updateOutboxUI();
@@ -618,12 +706,19 @@
     }
   }
 
+  function resetDiaperForm() {
+    document.getElementById('diaper-wet').checked = false;
+    document.getElementById('diaper-solid').checked = false;
+    document.getElementById('diaper-color').value = '';
+    document.getElementById('diaper-notes').value = '';
+    clearTags();
+    resetTimeInput('diaper-time');
+  }
+
   // --- Feeding Logging ---
   async function logFeeding() {
     const childObj = await db.config.get('child');
-    if (!childObj) return showToast('Configure Server & Child ID first!');
 
-    const btn = document.getElementById('btn-log-feeding');
     const type = document.getElementById('feed-type').value;
     const method = document.getElementById('feed-method').value;
     const amount = document.getElementById('feed-amount').value ? parseFloat(document.getElementById('feed-amount').value) : null;
@@ -634,19 +729,28 @@
     const startTime = new Date(timeVal);
     const endTime = new Date(startTime.getTime() + duration * 60000);
 
+    const payload = {
+      child: childObj ? childObj.value : null,
+      start: startTime.toISOString(),
+      end: endTime.toISOString(),
+      type: type,
+      method: method,
+      amount: amount,
+      notes: notes
+    };
+
+    if (!childObj) {
+      await queueEntryDraft('feedings', payload, 'Feeding saved as a draft — it will sync once a child is configured.');
+      document.getElementById('feed-amount').value = '';
+      document.getElementById('feed-notes').value = '';
+      resetTimeInput('feed-time');
+      return;
+    }
+
+    const btn = document.getElementById('btn-log-feeding');
     btn.disabled = true;
     btn.textContent = 'Queuing...';
     try {
-      const payload = {
-        child: childObj.value,
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        type: type,
-        method: method,
-        amount: amount,
-        notes: notes
-      };
-
       await db.outbox.add({
         endpoint: 'feedings',
         payload: payload,
@@ -676,7 +780,10 @@
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 
-  function startSleepTimer() {
+  async function startSleepTimer() {
+    if (!await db.config.get('child')) {
+      showToast('No child configured yet — the sleep will be saved as a draft until you add one.');
+    }
     sleepStartTime = new Date();
     document.getElementById('sleep-idle-state').classList.add('hidden');
     document.getElementById('sleep-active-state').classList.remove('hidden');
@@ -684,6 +791,97 @@
 
     sleepTimerInterval = setInterval(updateSleepDisplay, 1000);
     updateSleepDisplay();
+    await persistActiveTimer();
+  }
+
+  async function persistActiveTimer() {
+    if (!sleepStartTime) return;
+    try {
+      await db.config.put({
+        key: 'active_sleep_timer',
+        value: {
+          start: sleepStartTime.toISOString(),
+          notes: document.getElementById('sleep-notes') ? document.getElementById('sleep-notes').value.trim() : ''
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to persist active sleep timer:', err);
+    }
+  }
+
+  async function clearActiveTimer() {
+    try {
+      await db.config.delete('active_sleep_timer');
+    } catch (err) {
+      console.warn('Failed to clear active sleep timer:', err);
+    }
+  }
+
+  async function restoreActiveTimer() {
+    try {
+      const rec = await db.config.get('active_sleep_timer');
+      if (!rec || !rec.value || !rec.value.start) return;
+      sleepStartTime = new Date(rec.value.start);
+      const notesEl = document.getElementById('sleep-notes');
+      if (notesEl && rec.value.notes) notesEl.value = rec.value.notes;
+      document.getElementById('sleep-idle-state').classList.add('hidden');
+      document.getElementById('sleep-active-state').classList.remove('hidden');
+      document.getElementById('sleep-start-time-input').value = toLocalDatetimeInputValue(sleepStartTime);
+      sleepTimerInterval = setInterval(updateSleepDisplay, 1000);
+      updateSleepDisplay();
+    } catch (err) {
+      console.warn('Failed to restore active sleep timer:', err);
+    }
+  }
+
+  async function queueSleepDraft() {
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval);
+      sleepTimerInterval = null;
+    }
+    const endTime = new Date();
+    const notes = document.getElementById('sleep-notes').value.trim();
+    const startInput = document.getElementById('sleep-start-time-input');
+    const startTime = startInput && startInput.value ? new Date(startInput.value) : sleepStartTime;
+
+    try {
+      await db.outbox.add({
+        endpoint: 'sleep',
+        payload: {
+          start: startTime.toISOString(),
+          end: endTime.toISOString(),
+          notes: notes
+        },
+        created_at: new Date().toISOString(),
+        status: 'pending',
+        needs_child: true
+      });
+      showToast('Sleep saved as a draft — it will sync once a child is configured.');
+      resetSleepUI();
+      await updateOutboxUI();
+    } catch (err) {
+      console.error('queueSleepDraft error:', err);
+      showToast('Failed to save sleep — please reconfigure and log it manually.');
+      resetSleepUI();
+    }
+  }
+
+  // Queue any entry (diaper/feeding/sleep) as a draft when no child is configured yet.
+  async function queueEntryDraft(endpoint, payload, successMsg) {
+    try {
+      await db.outbox.add({
+        endpoint,
+        payload,
+        created_at: new Date().toISOString(),
+        status: 'pending',
+        needs_child: true
+      });
+      showToast(successMsg || 'Saved as a draft — it will sync once a child is configured.');
+      await updateOutboxUI();
+    } catch (err) {
+      console.error('queueEntryDraft error:', err);
+      showToast('Failed to save entry — please reconfigure and log it manually.');
+    }
   }
 
   function updateSleepDisplay() {
@@ -715,8 +913,8 @@
 
     const childObj = await db.config.get('child');
     if (!childObj) {
-      resetSleepUI();
-      return showToast('Configure Server & Child ID first!');
+      await queueSleepDraft();
+      return;
     }
 
     const btn = document.getElementById('btn-stop-sleep');
@@ -764,6 +962,7 @@
       clearInterval(sleepTimerInterval);
       sleepTimerInterval = null;
     }
+    clearActiveTimer();
     document.getElementById('sleep-idle-state').classList.remove('hidden');
     document.getElementById('sleep-active-state').classList.add('hidden');
     document.getElementById('sleep-timer-display').textContent = '00:00:00';
@@ -784,7 +983,6 @@
   // --- Log Manual (Past) Sleep ---
   async function logManualSleep() {
     const childObj = await db.config.get('child');
-    if (!childObj) return showToast('Configure Server & Child ID first!');
 
     const startInput = document.getElementById('sleep-manual-start');
     const endInput = document.getElementById('sleep-manual-end');
@@ -801,17 +999,27 @@
       return showToast('End time must be after start time.');
     }
 
+    const payload = {
+      child: childObj ? childObj.value : null,
+      start: startTime.toISOString(),
+      end: endTime.toISOString(),
+      notes: notes
+    };
+
+    if (!childObj) {
+      await queueEntryDraft('sleep', payload, 'Past sleep saved as a draft — it will sync once a child is configured.');
+      startInput.value = '';
+      endInput.value = '';
+      document.getElementById('sleep-notes').value = '';
+      document.getElementById('past-sleep-form').classList.add('hidden');
+      document.getElementById('past-sleep-toggle-icon').textContent = '▶';
+      return;
+    }
+
     const btn = document.getElementById('btn-log-past-sleep');
     btn.disabled = true;
     btn.textContent = 'Queuing...';
     try {
-      const payload = {
-        child: childObj.value,
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        notes: notes
-      };
-
       await db.outbox.add({
         endpoint: 'sleep',
         payload: payload,
@@ -860,6 +1068,7 @@
     let syncedCount = 0;
 
     for (const item of pendingItems) {
+      if (!item.payload || !item.payload.child) continue;
       try {
         const res = await fetch(`${serverObj.value}/api/${item.endpoint}/`, {
           method: 'POST',
@@ -949,10 +1158,11 @@
             if (p.notes) detail = detail ? `${detail} — ${p.notes}` : p.notes;
           }
           const dateStr = formatTime(new Date(i.created_at));
+          const needsChild = i.needs_child ? ' <span class="text-amber-600 dark:text-amber-400 font-medium">⚠ needs child</span>' : '';
           return `
           <div class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-2 rounded flex justify-between items-start gap-2">
             <div>
-              <span class="font-semibold text-gray-800 dark:text-gray-200">${escapeHtml(i.endpoint.toUpperCase())}</span>
+              <span class="font-semibold text-gray-800 dark:text-gray-200">${escapeHtml(i.endpoint.toUpperCase())}</span>${needsChild}
               <span class="text-gray-500 dark:text-gray-400 ml-1">${dateStr}</span>
               ${detail ? `<div class="text-gray-600 dark:text-gray-300 mt-0.5">${escapeHtml(detail)}</div>` : ''}
             </div>
@@ -1212,6 +1422,7 @@
     await loadConfig();
     await fetchTags();
     setupTagAutocomplete('diaper-tags', 'diaper-tag-suggestions');
+    await restoreActiveTimer();
     await updateOutboxUI();
     await renderServerHistory();
     updateNetworkStatus();

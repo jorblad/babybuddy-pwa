@@ -161,6 +161,7 @@ async function processBackgroundSync() {
   const pendingItems = await db.outbox.where('status').equals('pending').toArray();
 
   for (const item of pendingItems) {
+    if (!item.payload || !item.payload.child) continue;
     try {
       const res = await fetch(`${serverObj.value}/api/${item.endpoint}/`, {
         method: 'POST',
