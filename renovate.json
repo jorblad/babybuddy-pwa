@@ -11,6 +11,17 @@
   "addLabels": true,
   "packageRules": [
     {
+      "description": "Use the `deps` commit type for all dependency updates so release-please treats them as releasable units and cuts a release (release-please ignores `chore`)",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "semanticCommitType": "deps"
+    },
+    {
       "description": "Group non-major dependency updates into a single PR so they ship together in one release",
       "matchUpdateTypes": [
         "patch",
