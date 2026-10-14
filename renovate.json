@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "semanticCommits": true,
+  "dependencyDashboard": true,
+  "labels": [
+    "dependencies"
+  ],
+  "addLabels": true,
+  "packageRules": [
+    {
+      "description": "Group non-major dependency updates into a single PR so they ship together in one release",
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "description": "Label GitHub Actions workflow updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "addLabels": [
+        "github-actions"
+      ]
+    }
+  ],
+  "ignorePaths": [
+    "**/node_modules/**"
+  ]
+}
