@@ -32,7 +32,8 @@ Always write commit messages in this format so the automation can version correc
 
 ### Dependencies (Renovate)
 
-- `renovate.json` configures [Renovate](https://docs.renovatebot.com/). It is set to `semanticCommits: true` and uses `fix(deps):` / `feat(deps):` messages so dependency updates are automatically picked up by release-please and included in releases.
+- `renovate.json` configures [Renovate](https://docs.renovatebot.com/). Dependency updates are committed with the `deps` commit type (e.g. `deps(github-actions): ...`) because release-please only treats `feat`, `fix`, and `deps` as releasable units — its default `chore(deps)` would be ignored and never released.
+- Because of that `deps` type, dependency updates automatically cut a release and land under the **Dependencies** section of the changelog.
 - Non-major dependency updates are grouped into a single PR (`all non-major dependencies`) to keep release noise low.
 - GitHub Actions used in workflows are also kept up to date by Renovate.
 
