@@ -31,7 +31,7 @@ release-please derives the version from [Conventional Commits](https://www.conve
 
 ### Dependency updates
 
-[Renovate](https://docs.renovatebot.com/) keeps dependencies up to date (config in `renovate.json`). It is configured to use semantic commit messages (`fix(deps):`, `feat(deps):`) so dependency bumps are picked up by release-please and included in the changelog and release.
+[Renovate](https://docs.renovatebot.com/) keeps dependencies up to date (config in `renovate.json`). It is configured to commit dependency updates with the `deps` type (e.g. `deps(github-actions): ...`), which release-please recognizes as a releasable unit, so dependency bumps automatically produce a release and appear under the **Dependencies** section of the changelog. (release-please ignores `chore`, which is Renovate's default for most updates, so this override is required.)
 
 ### Limitations
 
